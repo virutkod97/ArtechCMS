@@ -81,7 +81,7 @@ $('#btn-test').onclick = async ()=>{
   const id=$('#f-id').value;
   if(!id){ $('#test-result').textContent='Lưu trước rồi Test'; return; }
   const r = await api(`/api/devices/${id}/test`,{method:'POST'});
-  $('#test-result').textContent = (r.ok?'✓ ':'✗ ')+(r.msg||'');
+  $('#test-result').textContent = (r.ok?'✓ ':'✗ ')+(r.msg||'')+(r.ok?'':' — xem tab Log');
 };
 
 // ---------------- recordings

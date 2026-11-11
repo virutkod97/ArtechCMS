@@ -166,10 +166,18 @@ def download_stream(device, dates, log=lambda *a: None, idle=2.0):
     login = build_login(device.get("user", "admin"), device.get("password", "1111"),
                         device.get("version", "150116 1.0.0.5"),
                         device.get("client_ip", ""), device.get("mac", ""), host)
+    log("connect %s:%d user=%s pass_len=%d" % (host, port, device.get("user", "admin"),
+                                               len(device.get("password", ""))))
     s = socket.create_connection((host, port), timeout=10)
     try:
         s.sendall(login); time.sleep(0.3)
         buf = bytearray(_recv_idle(s, idle=1.0))
+        if buf[:4] == bytes.fromhex("62000102"):
+            log("login OK (%d bytes)" % len(buf))
+        elif not buf:
+            log("CANH BAO: khong co phan hoi login - co the sai port giao thuc hoac thieu client_ip/mac")
+        else:
+            log("CANH BAO: login header khac thuong %s - xem /test de debug" % buf[:4].hex())
         for dt in dates:
             s.sendall(DAY_SELECT)
             s.sendall(DAY_QUERY + systemtime(dt.year, dt.month, dt.day))
@@ -188,6 +196,79 @@ def download_stream(device, dates, log=lambda *a: None, idle=2.0):
                     if empties >= 2: break
             log("date %s: stream now %d bytes" % (dt, len(buf)))
         return bytes(buf)
+    finally:
+        try: s.close()
+        except Exception: pass
+
+
+def _hex(b, n=64):
+    return b[:n].hex() + (" ...(+%d)" % (len(b) - n) if len(b) > n else "")
+
+
+def login_probe(device, log=lambda *a: None):
+    """
+    Try to log in and report, in detail, why it did or didn't work.
+    Returns a dict: {ok, msg, stage, bytes, reply_hex, reply_cmd, reply_text}.
+    Logs every step so the Log tab shows exactly where login fails.
+    """
+    host = device["host"]; port = int(device.get("port", PORT))
+    user = device.get("user", "admin"); pw = device.get("password", "")
+    tag = "[test %s:%d]" % (host, port)
+
+    # 1) TCP connect
+    log("%s connecting..." % tag)
+    try:
+        s = socket.create_connection((host, port), timeout=6)
+    except socket.timeout:
+        log("%s TCP TIMEOUT - khong toi duoc thiet bi (firewall? sai IP? app gate?)" % tag)
+        return {"ok": False, "stage": "connect", "msg": "TCP timeout - khong ket noi duoc %s:%d" % (host, port)}
+    except OSError as e:
+        log("%s TCP ERROR: %s" % (tag, e))
+        return {"ok": False, "stage": "connect", "msg": "TCP loi: %s" % e}
+    log("%s TCP connected" % tag)
+
+    try:
+        # 2) send login
+        frame = build_login(user, pw, device.get("version", "150116 1.0.0.5"),
+                           device.get("client_ip", ""), device.get("mac", ""), host)
+        log("%s gui login: user=%s pass_len=%d ver=%r client_ip=%r mac=%r (frame %d bytes)"
+            % (tag, user, len(pw), device.get("version", ""), device.get("client_ip", ""),
+               device.get("mac", ""), len(frame)))
+        s.sendall(frame)
+
+        # 3) read reply
+        reply = _recv_idle(s, idle=1.2, hard=6.0)
+        if not reply:
+            log("%s KHONG CO PHAN HOI - thiet bi nhan ket noi nhung im lang "
+                "(sai port giao thuc? firmware khac? can client_ip/mac dung?)" % tag)
+            return {"ok": False, "stage": "no_reply", "bytes": 0,
+                    "msg": "Ket noi duoc nhung thiet bi khong tra loi login"}
+
+        head = reply[:4]
+        log("%s nhan %d bytes, header=%s" % (tag, len(reply), head.hex()))
+        log("%s reply hex: %s" % (tag, _hex(reply, 80)))
+
+        # 4) interpret
+        if head == bytes.fromhex("62000102"):
+            # pull any readable UTF-16LE username echoed back
+            try:
+                name = reply[4:24].decode("utf-16-le", "ignore").split("\x00")[0]
+            except Exception:
+                name = ""
+            log("%s LOGIN OK (echo user=%r)" % (tag, name))
+            return {"ok": True, "stage": "ok", "bytes": len(reply),
+                    "reply_hex": head.hex(), "msg": "Login OK" + (" (user=%s)" % name if name else "")}
+
+        # unexpected header: decode cmd/sub if it looks framed (<u16 len><u8 cmd><u8 sub>)
+        info = ""
+        if len(reply) >= 4:
+            ln = struct.unpack_from("<H", reply, 0)[0]
+            info = " (frame len=%d cmd=%02x sub=%02x)" % (ln, reply[2], reply[3])
+        log("%s LOGIN BI TU CHOI/khac thuong: header=%s%s" % (tag, head.hex(), info))
+        log("%s -> thuong do sai user/pass, hoac thieu client_ip/mac/version dung" % tag)
+        return {"ok": False, "stage": "bad_reply", "bytes": len(reply),
+                "reply_hex": _hex(reply, 40),
+                "msg": "Thiet bi tra loi khac thuong (header %s)%s - xem tab Log" % (head.hex(), info)}
     finally:
         try: s.close()
         except Exception: pass

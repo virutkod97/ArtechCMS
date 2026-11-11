@@ -97,17 +97,8 @@ def api_test_device(did):
     d = db.get_device(did)
     if not d:
         return jsonify({"error": "not found"}), 404
-    import socket
-    try:
-        s = socket.create_connection((d["host"], int(d["port"])), timeout=5)
-        s.sendall(protocol.build_login(d["user"], d["password"], d["version"],
-                                       d.get("client_ip", ""), d.get("mac", ""), d["host"]))
-        reply = protocol._recv_idle(s, idle=1.0, hard=5.0); s.close()
-        ok = reply[:4] == bytes.fromhex("62000102")
-        return jsonify({"ok": ok, "bytes": len(reply),
-                        "msg": "login reply OK" if ok else "connected, unexpected reply"})
-    except Exception as e:
-        return jsonify({"ok": False, "msg": str(e)})
+    res = protocol.login_probe(d, log=log)
+    return jsonify(res)
 
 
 # ------------------------------------------------------------------ recordings API
