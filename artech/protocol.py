@@ -24,8 +24,9 @@ DAY_QUERY  = bytes.fromhex("42000c11")                 # + SYSTEMTIME(day): quer
 
 # ---------------------------------------------------------------- login
 def build_login(user, pw, ver, client_ip, mac, device_ip):
-    b = bytearray(320)
-    struct.pack_into("<HH", b, 0, 0x0140, 0x0001)      # length=320, cmd=1
+    # Frame = 2-byte length (0x0140 = 320 bytes FOLLOW) + 320-byte payload = 322 bytes total.
+    b = bytearray(322)
+    struct.pack_into("<HH", b, 0, 0x0140, 0x0001)      # length=320, cmd=01 sub=00
     def w(off, s):
         x = (s or "").encode("utf-16-le")
         b[off:off+len(x)] = x
