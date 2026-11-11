@@ -106,21 +106,7 @@ def api_test_device(did):
         ok, msg = ftp_downloader.probe(d["host"], d.get("ftp_port", 21), user, pw)
         log("[test ftp %s] %s" % (d["host"], msg))
         return jsonify({"ok": ok, "msg": msg})
-    if method == "db6066":
-        import glob as _glob, sqlite3 as _sq
-        folder = d.get("db_folder") or ""
-        probe = protocol.login_probe(d, log=log)             # also checks 6066 login
-        dbs = _glob.glob(os.path.join(folder, "CDR*.db")) if folder else []
-        nrec = 0
-        for f in dbs:
-            try:
-                nrec += _sq.connect(f).execute("SELECT COUNT(*) FROM CdrTable").fetchone()[0]
-            except Exception:
-                pass
-        dbmsg = "DB: %d file CDR, %d ban ghi" % (len(dbs), nrec) if folder else "chua dat db_folder"
-        log("[test db6066 %s] %s" % (d["host"], dbmsg))
-        ok = probe.get("ok") and bool(dbs)
-        return jsonify({"ok": ok, "msg": "%s | %s" % (probe.get("msg", ""), dbmsg)})
+    # standalone db6066: a successful 6066 login is all that's needed
     res = protocol.login_probe(d, log=log)
     return jsonify(res)
 

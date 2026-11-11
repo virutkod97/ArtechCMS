@@ -84,46 +84,8 @@
     <label>Tên <input id="f-name" placeholder="Artech tầng 1"></label>
     <div class="row">
       <label>IP thiết bị <input id="f-host" placeholder="10.43.12.240"></label>
-      <label>Phương thức tải
-        <select id="f-method">
-          <option value="db6066">DB + 6066 (khuyến nghị)</option>
-          <option value="ftp">FTP</option>
-          <option value="net">6066 thuần</option>
-        </select>
-      </label>
+      <label>Port <input id="f-port" value="6066"></label>
     </div>
-
-    <fieldset class="grp" data-method="db6066">
-      <legend>DB + 6066</legend>
-      <label>Thư mục DB (tùy chọn — để trống = tự kéo DB từ thiết bị)
-        <input id="f-db_folder" placeholder="để trống nếu không dùng phần mềm gốc"></label>
-      <div class="hint">Để trống: ArtechCMS tự tải CDR DB từ thiết bị qua 6066 (standalone, không cần phần mềm gốc). Hoặc trỏ tới thư mục serial của phần mềm gốc (chứa CDR*.db).</div>
-    </fieldset>
-
-    <fieldset class="grp" data-method="ftp">
-      <legend>FTP</legend>
-      <div class="row">
-        <label>FTP Port <input id="f-ftp_port" value="21"></label>
-        <label>Thư mục gốc <input id="f-ftp_root" value="/" placeholder="/ hoặc /Hard Disk"></label>
-      </div>
-      <div class="row">
-        <label>FTP User <input id="f-ftp_user" placeholder="admin (để trống = dùng user chung)"></label>
-        <label>FTP Pass <input id="f-ftp_pass" type="password" autocomplete="new-password" placeholder="để trống = giữ nguyên"></label>
-      </div>
-    </fieldset>
-
-    <fieldset class="grp" data-method="net" style="display:none">
-      <legend>Giao thức 6066</legend>
-      <div class="row">
-        <label>Port <input id="f-port" value="6066"></label>
-        <label>Version <input id="f-version" value="150116 1.0.0.5"></label>
-      </div>
-      <div class="row">
-        <label>Client IP <input id="f-client_ip" placeholder="IP máy chạy app"></label>
-        <label>MAC <input id="f-mac" placeholder="00-15-5D-04-75-1A"></label>
-      </div>
-    </fieldset>
-
     <div class="row">
       <label>User <input id="f-user" value="admin"></label>
       <label>Password <input id="f-password" type="password" autocomplete="new-password" placeholder="để trống = giữ nguyên"></label>

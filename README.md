@@ -52,32 +52,20 @@ data/artechcms.db     Cơ sở dữ liệu
 - **Kéo dữ liệu**: client gửi `06 00 0C 07 00 10 00 00` lặp lại; thiết bị đẩy từng chunk 4096 byte, mỗi chunk có marker `06 10 0C 07 00 10 00 00` ở đầu.
 - **Khung file**: `<delim 0D0009363A00002D3A0000> <u32 CDR_index> 06 00 0C 0A <u32 size> 00 00 <payload>`. Payload là WAV IMA ADPCM (mono 8000 Hz) đã bị chèn marker — lọc marker để ra WAV sạch.
 
-## Phương thức tải
+## Cách hoạt động (standalone, không cần phần mềm gốc)
 
-**DB + 6066 (khuyến nghị):** Thiết bị lưu danh sách cuộc gọi trong SQLite theo
-ngày (`CdrTable`, cột `RecFilePath` + metadata). ArtechCMS lấy danh sách này rồi
-tải từng WAV qua cổng **6066** bằng lệnh `0c/06` dựng byte-exact từ bản ghi CDR
-(đã kiểm chứng 10/10 với capture thật). Chỉ tải file hoàn tất (`.wav`, FileSize>0),
-bỏ qua `.tmp`, dedup theo `RecFilePath`. Hai nguồn danh sách CDR:
+Thiết bị lưu danh sách cuộc gọi trong SQLite theo ngày
+(`\Hard Disk\Sqlite\<YYYY>\<YYYYMM>\CDR<YYYYMMDD>.db`, bảng `CdrTable` có cột
+`RecFilePath` + metadata). ArtechCMS:
 
-- **Standalone (để trống Thư mục DB):** ArtechCMS tự tải file DB của thiết bị qua
-  6066 — đường dẫn `\Hard Disk\Sqlite\<YYYY>\<YYYYMM>\CDR<YYYYMMDD>.db` cho N ngày
-  gần nhất (theo "Số ngày lùi") — rồi đọc. **Không cần phần mềm gốc.**
-- **Local (điền Thư mục DB):** đọc CDR*.db do phần mềm gốc tạo (thư mục theo serial,
-  vd `55260439`). Dùng khi muốn tận dụng DB phần mềm gốc đã có.
+1. Đăng nhập thiết bị qua cổng **6066** (user/pass, mặc định `admin`/`1111`).
+2. Tự tải file CDR DB của thiết bị cho N ngày gần nhất (theo "Số ngày lùi").
+3. Đọc `CdrTable`, rồi tải từng WAV qua `0c/06` dựng byte-exact từ bản ghi CDR
+   (đã kiểm chứng 10/10 với capture thật).
 
-**FTP:** nếu thiết bị có bật FTP server — duyệt đệ quy, tải `.wav` mới. (Thiết bị
-AJ2L test không có FTP.)
-
-**6066 thuần:** best-effort khi không có DB; chưa hoàn chỉnh.
-
-### Tìm thư mục DB
-Thư mục serial (vd `55260439`) nằm trong thư mục cài/dữ liệu của phần mềm gốc.
-Tìm nhanh:
-```cmd
-dir /s /b C:\CDR*.db 2>nul
-```
-Lấy thư mục cha chứa các file `CDR*.db`.
+Chỉ tải file hoàn tất (`.wav`, FileSize>0), bỏ qua `.tmp`, dedup theo `RecFilePath`.
+Không cần phần mềm gốc. Lưu ý: thiết bị cho ít phiên đồng thời — **tắt phần mềm
+gốc** khi ArtechCMS kết nối.
 
 ## Cập nhật online
 Nút **⟳ Update**: nếu thư mục là git clone và có cài git → `git pull`; nếu chạy từ

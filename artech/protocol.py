@@ -35,6 +35,20 @@ def build_login(user, pw, ver, client_ip, mac, device_ip):
     return bytes(b)
 
 
+def local_ip(target_host=None):
+    """Best-effort local IP of this machine (as the vendor client would report)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect((target_host or "8.8.8.8", 80))
+        ip = s.getsockname()[0]; s.close()
+        return ip
+    except Exception:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except Exception:
+            return ""
+
+
 def systemtime(y, mo, da, h=0, mi=0, s=0, ms=0):
     dow = datetime.date(y, mo, da).isoweekday() % 7
     return struct.pack("<8H", y, mo, dow, da, h, mi, s, ms)
@@ -383,9 +397,10 @@ def login_and_handshake(device, log=lambda *a: None):
     host = device["host"]; port = int(device.get("port", PORT))
     s = socket.create_connection((host, port), timeout=10)
     conn = FrameConn(s)
+    cip = device.get("client_ip") or local_ip(host)
     # build_login() returns the full 322-byte frame; strip its 4-byte len+cmd+sub header
     conn.send(0x01, 0x00, build_login(device.get("user", "admin"), device.get("password", ""),
-              device.get("version", "150116 1.0.0.5"), device.get("client_ip", ""),
+              device.get("version", "150116 1.0.0.5"), cip,
               device.get("mac", ""), host)[4:])
     t0 = time.time()
     while time.time() - t0 < 6:
@@ -423,8 +438,9 @@ def login_probe(device, log=lambda *a: None):
 
     try:
         # 2) send login
+        cip = device.get("client_ip") or local_ip(host)
         frame = build_login(user, pw, device.get("version", "150116 1.0.0.5"),
-                           device.get("client_ip", ""), device.get("mac", ""), host)
+                           cip, device.get("mac", ""), host)
         log("%s gui login: user=%s pass_len=%d ver=%r client_ip=%r mac=%r (frame %d bytes)"
             % (tag, user, len(pw), device.get("version", ""), device.get("client_ip", ""),
                device.get("mac", ""), len(frame)))

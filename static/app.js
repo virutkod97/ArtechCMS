@@ -29,7 +29,7 @@ async function loadDevices(){
         <span class="badge ${d.enabled?'on':'off'}">${d.enabled?'Đang bật':'Tắt'}</span>
       </div>
       <div class="meta">
-        Cách tải: <b>${(d.method||'ftp').toUpperCase()}</b> · Chu kỳ <b>${d.interval_min}'</b> · Lùi ${d.lookback_days} ngày<br>
+        Chu kỳ <b>${d.interval_min}'</b> · Lùi ${d.lookback_days} ngày<br>
         File đã tải: <b>${d.recordings}</b> · Lần chạy: ${fmtTime(d.last_run)}
       </div>
       <div class="status">${d.last_status||'chưa chạy'}</div>
@@ -51,33 +51,23 @@ async function delDevice(id){
   if(!confirm('Xóa thiết bị này? (file đã tải vẫn giữ)')) return;
   await api(`/api/devices/${id}`,{method:'DELETE'}); loadDevices();
 }
-const FIELDS=['id','name','host','port','user','version','client_ip','mac',
-  'interval_min','lookback_days','method','ftp_port','ftp_user','ftp_root','db_folder'];
-function applyMethod(){
-  const m=$('#f-method').value;
-  $$('.grp').forEach(g=>g.style.display = g.dataset.method===m?'':'none');
-}
+const FIELDS=['id','name','host','port','user','interval_min','lookback_days'];
 function openModal(d){
   d = d||{};
   $('#modal-title').textContent = d.id?'Sửa thiết bị':'Thêm thiết bị';
   FIELDS.forEach(k=>{ const e=$('#f-'+k); if(e) e.value = d[k]!==undefined && d[k]!==null ? d[k] : (e.defaultValue||''); });
   $('#f-password').value=''; $('#f-password').placeholder = d.id?'để trống = giữ nguyên':'nhập mật khẩu';
-  $('#f-ftp_pass').value='';
-  $('#f-method').value = d.method || 'ftp';
-  applyMethod();
   $('#f-enabled').checked = d.enabled===undefined?true:!!d.enabled;
   $('#test-result').textContent='';
   $('#modal').classList.remove('hidden');
 }
-$('#f-method').onchange = applyMethod;
 function editDevice(id){ openModal((window._devices||[]).find(x=>x.id===id)); }
 $('#btn-add-device').onclick = ()=>openModal({});
 $('#btn-cancel').onclick = ()=>$('#modal').classList.add('hidden');
 function formData(){
-  const d={}; ['name','host','port','user','version','client_ip','mac','interval_min','lookback_days',
-    'method','ftp_port','ftp_user','ftp_root','db_folder'].forEach(k=>d[k]=$('#f-'+k).value);
+  const d={}; ['name','host','port','user','interval_min','lookback_days'].forEach(k=>d[k]=$('#f-'+k).value);
   const pw=$('#f-password').value; if(pw) d.password=pw;          // blank = keep current
-  const fp=$('#f-ftp_pass').value; if(fp) d.ftp_pass=fp;
+  d.method='db6066'; d.db_folder='';                             // standalone only
   d.enabled = $('#f-enabled').checked?1:0; return d;
 }
 $('#btn-save').onclick = async ()=>{
