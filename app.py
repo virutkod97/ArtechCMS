@@ -97,6 +97,15 @@ def api_test_device(did):
     d = db.get_device(did)
     if not d:
         return jsonify({"error": "not found"}), 404
+    method = (d.get("method") or "ftp").lower()
+    if method == "ftp":
+        from artech import ftp_downloader
+        user = d.get("ftp_user") or d.get("user", "admin")
+        pw = d.get("ftp_pass") or d.get("password", "1111")
+        log("[test ftp %s:%s] user=%s" % (d["host"], d.get("ftp_port", 21), user))
+        ok, msg = ftp_downloader.probe(d["host"], d.get("ftp_port", 21), user, pw)
+        log("[test ftp %s] %s" % (d["host"], msg))
+        return jsonify({"ok": ok, "msg": msg})
     res = protocol.login_probe(d, log=log)
     return jsonify(res)
 
@@ -137,19 +146,61 @@ def api_rec_download(rid):
 def api_logs():
     return jsonify(_log_lines[-200:])
 
+ZIP_URL = GITHUB_REPO + "/archive/refs/heads/main.zip"
+
+def _update_via_git():
+    out = subprocess.check_output(["git", "-C", BASE, "pull", "--ff-only"],
+                                  stderr=subprocess.STDOUT, timeout=60).decode("utf-8", "ignore")
+    return "git pull:\n" + out
+
+def _update_via_zip():
+    """Download repo zip from GitHub and overwrite code files (keep data/, recordings/)."""
+    import urllib.request, zipfile, tempfile, shutil
+    log("update: tai zip tu %s" % ZIP_URL)
+    tmp = tempfile.mkdtemp()
+    zp = os.path.join(tmp, "repo.zip")
+    urllib.request.urlretrieve(ZIP_URL, zp)
+    with zipfile.ZipFile(zp) as z:
+        z.extractall(tmp)
+    # find extracted root (ArtechCMS-main)
+    root = next(os.path.join(tmp, d) for d in os.listdir(tmp)
+                if os.path.isdir(os.path.join(tmp, d)) and d.lower().startswith("artechcms"))
+    copied = 0
+    for dirpath, _, files in os.walk(root):
+        rel = os.path.relpath(dirpath, root)
+        if rel.startswith("data") or rel.startswith("recordings") or ".git" in rel:
+            continue
+        for f in files:
+            dst = os.path.join(BASE, rel, f) if rel != "." else os.path.join(BASE, f)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(os.path.join(dirpath, f), dst)
+            copied += 1
+    shutil.rmtree(tmp, ignore_errors=True)
+    return "Da tai ban moi tu GitHub (%d file). Khoi dong lai..." % copied
+
 @app.route("/api/update", methods=["POST"])
 def api_update():
-    """git pull from GitHub, then exit so the launcher restarts."""
+    """Update from GitHub: git pull if it's a git clone, else download the zip."""
+    is_git = os.path.isdir(os.path.join(BASE, ".git"))
+    has_git = False
     try:
-        out = subprocess.check_output(["git", "-C", BASE, "pull", "--ff-only"],
-                                      stderr=subprocess.STDOUT, timeout=60).decode("utf-8", "ignore")
-        log("update: %s" % out.strip().replace("\n", " | "))
-        threading.Timer(1.0, lambda: os._exit(3)).start()  # launcher restarts (see start script)
+        subprocess.check_output(["git", "--version"], stderr=subprocess.STDOUT, timeout=10)
+        has_git = True
+    except Exception:
+        has_git = False
+    try:
+        if is_git and has_git:
+            out = _update_via_git()
+        else:
+            reason = "khong phai git repo" if not is_git else "khong co git"
+            log("update: %s -> dung zip" % reason)
+            out = _update_via_zip()
+        log("update OK")
+        threading.Timer(1.0, lambda: os._exit(3)).start()  # launcher restarts
         return jsonify({"ok": True, "output": out})
-    except subprocess.CalledProcessError as e:
-        return jsonify({"ok": False, "output": e.output.decode("utf-8", "ignore")}), 500
     except Exception as e:
-        return jsonify({"ok": False, "output": str(e)}), 500
+        log("update LOI: %s" % e)
+        return jsonify({"ok": False, "output": "Loi update: %s" % e}), 500
 
 
 def main():

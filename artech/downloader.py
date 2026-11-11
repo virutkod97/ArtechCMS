@@ -12,7 +12,16 @@ def _duration(wav):
 
 
 def run_device(db, device, rec_root, log=lambda *a: None):
-    """Download new recordings for one device. Returns (new_count, msg)."""
+    """Dispatch to FTP (reliable) or the 6066 net protocol based on device.method."""
+    method = (device.get("method") or "ftp").lower()
+    if method == "ftp":
+        from . import ftp_downloader
+        return ftp_downloader.run_device_ftp(db, device, rec_root, log=log)
+    return run_device_net(db, device, rec_root, log=log)
+
+
+def run_device_net(db, device, rec_root, log=lambda *a: None):
+    """Download via the proprietary 6066 protocol (best-effort). Returns (new, msg)."""
     did = device["id"]
     lookback = int(device.get("lookback_days", 1) or 1)
     today = datetime.date.today()

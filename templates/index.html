@@ -58,16 +58,41 @@
     <label>Tên <input id="f-name" placeholder="Artech tầng 1"></label>
     <div class="row">
       <label>IP thiết bị <input id="f-host" placeholder="10.43.12.240"></label>
-      <label>Port <input id="f-port" value="6066"></label>
+      <label>Phương thức tải
+        <select id="f-method">
+          <option value="ftp">FTP (khuyến nghị)</option>
+          <option value="net">Giao thức 6066</option>
+        </select>
+      </label>
     </div>
+
+    <fieldset class="grp" data-method="ftp">
+      <legend>FTP</legend>
+      <div class="row">
+        <label>FTP Port <input id="f-ftp_port" value="21"></label>
+        <label>Thư mục gốc <input id="f-ftp_root" value="/" placeholder="/ hoặc /Hard Disk"></label>
+      </div>
+      <div class="row">
+        <label>FTP User <input id="f-ftp_user" placeholder="admin (để trống = dùng user chung)"></label>
+        <label>FTP Pass <input id="f-ftp_pass" type="password" autocomplete="new-password" placeholder="để trống = giữ nguyên"></label>
+      </div>
+    </fieldset>
+
+    <fieldset class="grp" data-method="net" style="display:none">
+      <legend>Giao thức 6066</legend>
+      <div class="row">
+        <label>Port <input id="f-port" value="6066"></label>
+        <label>Version <input id="f-version" value="150116 1.0.0.5"></label>
+      </div>
+      <div class="row">
+        <label>Client IP <input id="f-client_ip" placeholder="IP máy chạy app"></label>
+        <label>MAC <input id="f-mac" placeholder="00-15-5D-04-75-1A"></label>
+      </div>
+    </fieldset>
+
     <div class="row">
       <label>User <input id="f-user" value="admin"></label>
-      <label>Password <input id="f-password" type="password" autocomplete="new-password" placeholder="nhập mật khẩu"></label>
-    </div>
-    <label>Version <input id="f-version" value="150116 1.0.0.5"></label>
-    <div class="row">
-      <label>Client IP <input id="f-client_ip" placeholder="IP máy chạy app"></label>
-      <label>MAC <input id="f-mac" placeholder="00-15-5D-04-75-1A"></label>
+      <label>Password <input id="f-password" type="password" autocomplete="new-password" placeholder="để trống = giữ nguyên"></label>
     </div>
     <div class="row">
       <label>Chu kỳ tải (phút) <input id="f-interval_min" value="15"></label>

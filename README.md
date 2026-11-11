@@ -5,7 +5,9 @@ Phần mềm web quản lý **nhiều máy ghi âm Artech** (dòng AJ/AK/AQ, gia
 ## Tính năng
 - Quản lý **nhiều thiết bị Artech** cùng lúc (thêm/sửa/xóa, test kết nối).
 - **Tự động tải** file ghi âm theo chu kỳ (mặc định 15 phút, cấu hình từng thiết bị).
-- **Không tải lại** file đã có (dedup theo CDR index, lưu trong SQLite).
+- Hai phương thức tải: **FTP (khuyến nghị, ổn định)** hoặc giao thức 6066.
+- **Không tải lại** file đã có (dedup theo đường dẫn FTP / CDR index, lưu trong SQLite).
+- Mật khẩu nhập ẩn, mã hóa khi lưu (DPAPI trên Windows).
 - **Nghe ngay trên web** — tự giải mã IMA ADPCM → PCM (không cần ffmpeg).
 - **Duyệt + tải thủ công** mọi file đã lưu.
 - **Cập nhật online** từ GitHub (nút ⟳ Update) hoặc `update.bat`.
@@ -50,8 +52,21 @@ data/artechcms.db     Cơ sở dữ liệu
 - **Kéo dữ liệu**: client gửi `06 00 0C 07 00 10 00 00` lặp lại; thiết bị đẩy từng chunk 4096 byte, mỗi chunk có marker `06 10 0C 07 00 10 00 00` ở đầu.
 - **Khung file**: `<delim 0D0009363A00002D3A0000> <u32 CDR_index> 06 00 0C 0A <u32 size> 00 00 <payload>`. Payload là WAV IMA ADPCM (mono 8000 Hz) đã bị chèn marker — lọc marker để ra WAV sạch.
 
-## Lưu ý về chế độ tải tự động
-Hàm `protocol.download_stream()` tải theo cách: login → chọn ngày → vòng lặp kéo chunk đến khi hết. Cadence vòng lặp đã dựng từ capture thật; nếu với thiết bị/firmware khác mà bị dừng sớm hoặc thiếu file, bắt thêm 1 capture (pktmon lọc theo IP thiết bị) và điều chỉnh tham số `idle`/số lần lặp trong `download_stream`. Việc **ghi file** luôn an toàn: đã dedup theo index nên không bao giờ ghi trùng.
+## Phương thức tải
+
+**FTP (khuyến nghị):** Dòng Artech này thường có sẵn FTP server cho SD card.
+ArtechCMS duyệt đệ quy thư mục (mặc định `/`, có thể đặt `/Hard Disk`), tải file
+`.wav` mới, dedup theo đường dẫn trên server. Đây là cách ổn định nhất.
+Cấu hình: chọn "FTP" trong phần Phương thức tải, điền FTP port/user/pass/thư mục gốc.
+
+**Giao thức 6066:** dùng khi thiết bị không bật FTP. Lưu ý: luồng tải file qua 6066
+phụ thuộc trạng thái nội bộ của phần mềm gốc (thư mục `Record_N`, metadata cuộc gọi)
+nên tái tạo chưa hoàn chỉnh — ưu tiên FTP.
+
+## Cập nhật online
+Nút **⟳ Update**: nếu thư mục là git clone và có cài git → `git pull`; nếu chạy từ
+file zip → tự tải `main.zip` từ GitHub và ghi đè code (giữ nguyên `data/`,
+`recordings/`). Sau đó app thoát với mã 3 để `deploy_windows.bat` khởi động lại.
 
 ## License
 Nội bộ EVNNPC. Dùng cho thiết bị do bạn sở hữu/quản trị.
