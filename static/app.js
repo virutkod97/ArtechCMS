@@ -214,9 +214,24 @@ function clPlay(rid,title){
   $('#cl-player-wrap').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
-// ---------------- logs + update
-async function loadLogs(){ const l=await api('/api/logs'); $('#log-box').textContent=l.join('\n'); $('#log-box').scrollTop=1e9; }
+// ---------------- logs + update (auto-refresh in realtime)
+let _logPrev = '';
+async function loadLogs(){
+  try{
+    const l = await api('/api/logs');
+    const box = $('#log-box');
+    const text = l.join('\n');
+    if(text === _logPrev) return;                 // no change -> no repaint
+    _logPrev = text;
+    // keep pinned to bottom only if the user is already near the bottom
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    box.textContent = text;
+    if(atBottom) box.scrollTop = box.scrollHeight;
+  }catch(e){}
+}
 $('#btn-refresh-log').onclick = loadLogs;
+// poll every 2s while the Nhật ký tab is visible
+setInterval(()=>{ if($('#tab-logs').classList.contains('active')) loadLogs(); }, 2000);
 $('#btn-update').onclick = async ()=>{
   if(!confirm('Cập nhật từ GitHub và khởi động lại?')) return;
   const r = await api('/api/update',{method:'POST'});
