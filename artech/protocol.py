@@ -335,6 +335,9 @@ def login_and_handshake(device, log=lambda *a: None):
         if cmd == 0x01 and sub == 0x02:
             log("login OK")
             return conn
+        if cmd == 0x01 and sub == 0x05:
+            raise ConnectionError("login bi tu choi (01/05) - thiet bi da du ket noi; "
+                                  "dong PhoneRec/client khac roi thu lai")
     raise ConnectionError("no login reply (01/02)")
 
 
@@ -392,11 +395,17 @@ def login_probe(device, log=lambda *a: None):
             return {"ok": True, "stage": "ok", "bytes": len(reply),
                     "reply_hex": head.hex(), "msg": "Login OK" + (" (user=%s)" % name if name else "")}
 
-        # unexpected header: decode cmd/sub if it looks framed (<u16 len><u8 cmd><u8 sub>)
+        # login reply but not sub=02 (success). sub=05 = rejected/busy (connection limit).
         info = ""
         if len(reply) >= 4:
             ln = struct.unpack_from("<H", reply, 0)[0]
             info = " (frame len=%d cmd=%02x sub=%02x)" % (ln, reply[2], reply[3])
+        if head[:3] == bytes.fromhex("620001") and reply[3] == 0x05:
+            log("%s LOGIN BI TU CHOI (01/05) - thiet bi da du so ket noi cho phep" % tag)
+            log("%s -> dong phan mem goc (PhoneRec) va cac client khac dang noi toi thiet bi, doi ~30s roi thu lai" % tag)
+            return {"ok": False, "stage": "busy", "bytes": len(reply),
+                    "reply_hex": _hex(reply, 40),
+                    "msg": "Thiet bi tu choi dang nhap (dang co phien khac). Dong PhoneRec/client khac, doi ~30s roi Test lai."}
         log("%s LOGIN BI TU CHOI/khac thuong: header=%s%s" % (tag, head.hex(), info))
         log("%s -> thuong do sai user/pass, hoac thieu client_ip/mac/version dung" % tag)
         return {"ok": False, "stage": "bad_reply", "bytes": len(reply),
