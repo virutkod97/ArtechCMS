@@ -4,38 +4,44 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ArtechCMS</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
 <header>
-  <div class="brand">📞 ArtechCMS</div>
+  <div class="brand">ArtechCMS</div>
   <nav>
     <button class="tab active" data-tab="devices">Thiết bị</button>
     <button class="tab" data-tab="recordings">Ghi âm</button>
-    <button class="tab" data-tab="logs">Log</button>
+    <button class="tab" data-tab="logs">Nhật ký hệ thống</button>
   </nav>
   <div class="spacer"></div>
-  <button id="btn-update" title="Cập nhật từ GitHub">⟳ Update</button>
+  <button id="btn-update" class="ghost" title="Cập nhật từ GitHub">Cập nhật</button>
 </header>
 
 <main>
   <!-- DEVICES -->
   <section id="tab-devices" class="tab-panel active">
     <div class="bar">
-      <h2>Thiết bị Artech</h2>
-      <button class="primary" id="btn-add-device">+ Thêm thiết bị</button>
+      <h2>Thiết bị</h2>
+      <div class="spacer"></div>
+      <button class="primary" id="btn-add-device">Thêm thiết bị</button>
     </div>
-    <div id="device-list" class="cards"></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Tên</th><th>Trạng thái</th><th>Chu kỳ</th><th>Đã tải</th><th>Lần chạy gần nhất</th><th></th></tr></thead>
+        <tbody id="device-list"></tbody>
+      </table>
+    </div>
   </section>
 
   <!-- RECORDINGS -->
   <section id="tab-recordings" class="tab-panel">
-    <h2>Nhật ký cuộc gọi</h2>
+    <h2>File ghi âm đã tải</h2>
 
     <!-- media player at TOP -->
     <div id="player-wrap" style="display:none">
-      <div id="player-title" class="muted" style="margin-bottom:4px"></div>
-      <audio id="player" controls style="width:100%"></audio>
+      <div id="player-title" class="sub" style="margin-bottom:6px"></div>
+      <audio id="player" controls></audio>
     </div>
 
     <!-- filter bar: nothing loads until "Xem" is pressed -->
@@ -50,28 +56,27 @@
       <span id="rec-count" class="muted"></span>
     </div>
 
-    <div id="rec-empty" class="muted" style="padding:30px;text-align:center">
-      Chọn bộ lọc (thiết bị / khoảng ngày) rồi bấm <b>Xem</b> để tải danh sách.
-    </div>
-
+    <div class="table-wrap">
+    <div id="rec-empty" class="empty">Chọn thiết bị hoặc khoảng ngày rồi bấm Xem.</div>
     <table id="rec-table" style="display:none">
       <thead><tr>
         <th>Thời điểm gọi</th><th>Hướng</th><th>Số điện thoại</th><th>Kênh</th>
-        <th>Thiết bị</th><th>Thời lượng</th><th>Dung lượng</th><th>Nghe</th><th></th>
+        <th>Thiết bị</th><th>Thời lượng</th><th>Dung lượng</th><th></th>
       </tr></thead>
       <tbody></tbody>
     </table>
+    </div>
 
     <div id="pager" class="pager" style="display:none">
-      <button id="pg-prev">‹ Trước</button>
+      <button id="pg-prev">Trước</button>
       <span id="pg-info" class="muted"></span>
-      <button id="pg-next">Sau ›</button>
+      <button id="pg-next">Sau</button>
     </div>
   </section>
 
   <!-- LOGS -->
   <section id="tab-logs" class="tab-panel">
-    <div class="bar"><h2>Nhật ký</h2><span class="live">● trực tiếp</span><button id="btn-refresh-log">↻</button></div>
+    <div class="bar"><h2>Nhật ký hệ thống</h2><span class="sub">Tự cập nhật mỗi 2 giây</span><div class="spacer"></div><button id="btn-refresh-log">Làm mới</button></div>
     <pre id="log-box"></pre>
   </section>
 </main>
@@ -81,22 +86,22 @@
   <div class="modal-box">
     <h3 id="modal-title">Thiết bị</h3>
     <input type="hidden" id="f-id">
-    <label>Tên <input id="f-name" placeholder="Artech tầng 1"></label>
+    <label>Tên <input id="f-name" placeholder="Ví dụ: TVH Bình Lục"></label>
     <div class="row">
       <label>IP thiết bị <input id="f-host" placeholder="10.43.12.240"></label>
-      <label>Port <input id="f-port" value="6066"></label>
+      <label>Cổng <input id="f-port" value="6066"></label>
     </div>
     <div class="row">
-      <label>User <input id="f-user" value="admin"></label>
-      <label>Password <input id="f-password" type="password" autocomplete="new-password" placeholder="để trống = giữ nguyên"></label>
+      <label>Tài khoản <input id="f-user" value="admin"></label>
+      <label>Mật khẩu <input id="f-password" type="password" autocomplete="new-password" placeholder="để trống = giữ nguyên"></label>
     </div>
     <div class="row">
       <label>Chu kỳ tải (phút) <input id="f-interval_min" value="15"></label>
-      <label>Số ngày lùi <input id="f-lookback_days" value="1"></label>
-      <label class="chk">Bật <input type="checkbox" id="f-enabled" checked></label>
+      <label>Số ngày quét lại <input id="f-lookback_days" value="1"></label>
+      <label class="chk"><input type="checkbox" id="f-enabled" checked> Tự động tải</label>
     </div>
     <div class="modal-actions">
-      <button id="btn-test" class="ghost">Test kết nối</button>
+      <button id="btn-test" class="ghost">Kiểm tra kết nối</button>
       <span id="test-result" class="muted"></span>
       <div class="spacer"></div>
       <button id="btn-cancel" class="ghost">Hủy</button>
@@ -107,27 +112,22 @@
 
 <!-- call-log popup (live from device) -->
 <div id="cl-modal" class="modal hidden">
-  <div class="modal-box" style="width:900px">
+  <div class="modal-box wide">
     <h3 id="cl-title">Nhật ký cuộc gọi</h3>
-    <div class="filterbar" style="margin-top:0">
+    <div class="filterbar">
       <label>Từ ngày <input type="date" id="cl-from"></label>
       <label>Đến ngày <input type="date" id="cl-to"></label>
-      <label class="chk" style="flex-direction:row;align-items:center;gap:6px">
-        <input type="checkbox" id="cl-autoplay" checked> Tự nghe sau khi tải</label>
+      <label class="chk"><input type="checkbox" id="cl-autoplay" checked> Nghe ngay sau khi tải</label>
       <button class="primary" id="cl-load">Lấy nhật ký</button>
       <span id="cl-status" class="muted"></span>
     </div>
 
-    <div id="cl-player-wrap" style="display:none;margin-bottom:10px">
-      <div id="cl-player-title" class="muted" style="margin-bottom:4px"></div>
-      <audio id="cl-player" controls style="width:100%"></audio>
+    <div id="cl-player-wrap" style="display:none">
+      <div id="cl-player-title" class="sub" style="margin-bottom:6px"></div>
+      <audio id="cl-player" controls></audio>
     </div>
 
-    <div id="cl-body" style="max-height:52vh;overflow:auto">
-      <div class="muted" style="padding:24px;text-align:center">
-        Chọn khoảng ngày rồi bấm <b>Lấy nhật ký</b> — dữ liệu lấy trực tiếp từ thiết bị.
-      </div>
-    </div>
+    <div id="cl-body"><div class="empty">Chọn khoảng ngày rồi bấm Lấy nhật ký.</div></div>
 
     <div class="modal-actions" style="margin-top:14px">
       <div class="spacer"></div>
@@ -138,13 +138,13 @@
 
 <!-- download-range popup -->
 <div id="dl-modal" class="modal hidden">
-  <div class="modal-box" style="width:440px">
+  <div class="modal-box narrow">
     <h3 id="dl-title">Tải file ghi âm</h3>
     <div class="row">
       <label>Từ ngày <input type="date" id="dl-from"></label>
       <label>Đến ngày <input type="date" id="dl-to"></label>
     </div>
-    <div class="hint" style="margin-bottom:6px">Tải toàn bộ cuộc gọi trong khoảng ngày đã chọn (bỏ qua file đã tải).</div>
+    <div class="hint">Tải mọi cuộc gọi trong khoảng ngày đã chọn. File đã tải sẽ được bỏ qua.</div>
     <div class="modal-actions">
       <div class="spacer"></div>
       <button id="dl-cancel" class="ghost">Hủy</button>
@@ -153,6 +153,6 @@
   </div>
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=3"></script>
 </body>
 </html>

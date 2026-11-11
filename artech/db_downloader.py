@@ -149,7 +149,7 @@ def run_device_db(db, device, rec_root, log=lambda *a: None, dates=None):
     try:
         conn = protocol.login_and_handshake(device, log=lambda *a: log(tag, *a))
     except Exception as e:
-        msg = "login loi: %s" % e
+        msg = "Không đăng nhập được: %s" % e
         db.set_device_status(did, msg); log("%s %s" % (tag, msg)); return 0, msg
 
     # Collect CDR rows first (device DBs are pulled up-front so WAV-download
@@ -202,6 +202,6 @@ def run_device_db(db, device, rec_root, log=lambda *a: None, dates=None):
     finally:
         try: conn.s.close()
         except Exception: pass
-    msg = "db6066 ok: %d moi / %d wav / %d bo qua @ %s" % (new, seen, skipped, time.strftime("%H:%M:%S"))
+    msg = "Tải %d file mới, %d file trên thiết bị" % (new, seen)
     db.set_device_status(did, msg); log("%s %s" % (tag, msg))
     return new, msg

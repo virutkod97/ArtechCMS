@@ -3,6 +3,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 const api = (u, opt) => fetch(u, opt).then(r => r.json());
 const fmtBytes = b => b > 1e6 ? (b/1e6).toFixed(1)+' MB' : (b/1e3).toFixed(0)+' KB';
 const fmtTime = t => t ? new Date(t*1000).toLocaleString('vi-VN') : '-';
+const esc = v => String(v??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtDur = s => { s=Math.round(s||0); return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; };
 
 // tabs
@@ -21,26 +22,24 @@ async function loadDevices(){
   const devs = await api('/api/devices');
   const el = $('#device-list'); el.innerHTML='';
   const filt = $('#rec-filter'); filt.innerHTML='<option value="">Tất cả thiết bị</option>';
+  if(!devs.length) el.innerHTML = '<tr><td colspan="6" class="empty">Chưa có thiết bị. Bấm Thêm thiết bị để bắt đầu.</td></tr>';
   devs.forEach(d=>{
-    filt.innerHTML += `<option value="${d.id}">${d.name}</option>`;
-    el.innerHTML += `<div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:start">
-        <div><h3>${d.name}</h3><div class="host">${d.host}:${d.port}</div></div>
-        ${d.busy ? '<span class="badge busy">● Đang chạy</span>'
-                 : `<span class="badge ${d.enabled?'on':'off'}">${d.enabled?'Đang bật':'Tắt'}</span>`}
-      </div>
-      <div class="meta">
-        Chu kỳ <b>${d.interval_min}'</b> · Lùi ${d.lookback_days} ngày<br>
-        File đã tải: <b>${d.recordings}</b> · Lần chạy: ${fmtTime(d.last_run)}
-      </div>
-      <div class="status">${d.last_status||'chưa chạy'}</div>
-      <div class="card-actions">
-        <button class="primary" onclick="downloadNow(${d.id})">⬇ Tải ngay</button>
-        <button onclick="callLog(${d.id})">📋 Nhật ký cuộc gọi</button>
-        <button onclick="editDevice(${d.id})">Sửa</button>
-        <button class="danger" onclick="delDevice(${d.id})">Xóa</button>
-      </div>
-    </div>`;
+    filt.innerHTML += `<option value="${d.id}">${esc(d.name)}</option>`;
+    const st = d.busy ? '<span class="st busy">Đang chạy</span>'
+             : d.enabled ? '<span class="st on">Tự động tải</span>' : '<span class="st off">Tạm dừng</span>';
+    el.innerHTML += `<tr>
+      <td><b>${esc(d.name)}</b><div class="sub num">${esc(d.host)}:${d.port}</div></td>
+      <td>${st}</td>
+      <td class="num">${d.interval_min} phút</td>
+      <td class="num">${d.recordings} file</td>
+      <td><span class="num">${fmtTime(d.last_run)}</span><div class="sub">${esc(d.last_status||'Chưa chạy')}</div></td>
+      <td><div class="actions">
+        <button class="link" onclick="downloadNow(${d.id})">Tải file</button>
+        <button class="link" onclick="callLog(${d.id})">Nhật ký cuộc gọi</button>
+        <button class="link" onclick="editDevice(${d.id})">Sửa</button>
+        <button class="link del" onclick="delDevice(${d.id})">Xóa</button>
+      </div></td>
+    </tr>`;
   });
   window._devices = devs;
 }
@@ -48,7 +47,7 @@ let dlDevice = null;
 function downloadNow(id){                 // open date-range popup
   dlDevice = id;
   const dev = (window._devices||[]).find(x=>x.id===id);
-  $('#dl-title').textContent = 'Tải file ghi âm — ' + (dev?dev.name:('#'+id));
+  $('#dl-title').textContent = 'Tải file ghi âm: ' + (dev?dev.name:('#'+id));
   const today = new Date().toISOString().slice(0,10);
   $('#dl-from').value = today; $('#dl-to').value = today;
   $('#dl-modal').classList.remove('hidden');
@@ -92,14 +91,14 @@ $('#btn-save').onclick = async ()=>{
   $('#modal').classList.add('hidden'); loadDevices();
 };
 $('#btn-test').onclick = async ()=>{
-  $('#test-result').textContent='đang test...';
+  $('#test-result').textContent='Đang kiểm tra...';
   const d=formData();
   // save-less test: create temp via PUT needs id; use a transient endpoint by posting then deleting is heavy.
   // simplest: require save first if new. Here we test an existing device if editing.
   const id=$('#f-id').value;
-  if(!id){ $('#test-result').textContent='Lưu trước rồi Test'; return; }
+  if(!id){ $('#test-result').textContent='Lưu thiết bị trước rồi kiểm tra.'; return; }
   const r = await api(`/api/devices/${id}/test`,{method:'POST'});
-  $('#test-result').textContent = (r.ok?'✓ ':'✗ ')+(r.msg||'')+(r.ok?'':' — xem tab Log');
+  $('#test-result').textContent = (r.ok?'Kết nối được. ':'Không kết nối được: ')+(r.msg||'');
 };
 
 // ---------------- recordings (call log) — nothing loads until user presses "Xem"
@@ -114,24 +113,24 @@ async function loadRecordings(){
   if(to) qs.set('to', to);
   const r = await api('/api/recordings?'+qs.toString());
   recLoaded = true;
-  $('#rec-count').textContent = `${r.total} cuộc gọi`;
+  $('#rec-count').textContent = `${r.total} file`;
   const tb = $('#rec-table tbody'); tb.innerHTML='';
   if(!r.items.length){
     $('#rec-table').style.display='none'; $('#pager').style.display='none';
     $('#rec-empty').style.display='block';
-    $('#rec-empty').textContent = 'Không có cuộc gọi nào khớp bộ lọc.';
+    $('#rec-empty').textContent = 'Không có file nào khớp bộ lọc.';
     return;
   }
   $('#rec-empty').style.display='none';
   window._recItems = r.items;
   r.items.forEach((x,i)=>{
-    const dir = x.direction==='Gọi đi' ? '<span class="dir out">↗ Gọi đi</span>'
-              : x.direction==='Gọi đến' ? '<span class="dir in">↘ Gọi đến</span>' : (x.direction||'');
+    const dir = x.direction==='Gọi đi' ? '<span class="dir out">Gọi đi</span>'
+              : x.direction==='Gọi đến' ? '<span class="dir in">Gọi đến</span>' : (x.direction||'');
     tb.innerHTML += `<tr>
-      <td>${x.call_time||'-'}</td><td>${dir}</td><td>${x.phone||'-'}</td><td>${x.channel||'-'}</td>
-      <td>${x.device_name}</td><td>${fmtDur(x.duration)}</td><td>${fmtBytes(x.bytes)}</td>
-      <td><button class="link" onclick="recPlay(${i})">▶ Nghe</button></td>
-      <td><a href="/api/recordings/${x.id}/download"><button>⬇</button></a></td>
+      <td class="num">${x.call_time||'-'}</td><td>${dir}</td><td class="num">${esc(x.phone||'-')}</td><td>${esc(x.channel||'-')}</td>
+      <td>${esc(x.device_name)}</td><td class="num">${fmtDur(x.duration)}</td><td class="num">${fmtBytes(x.bytes)}</td>
+      <td><div class="actions"><button class="link" onclick="recPlay(${i})">Nghe</button>
+        <a class="link" href="/api/recordings/${x.id}/download">Tải về</a></div></td>
     </tr>`;
   });
   $('#rec-table').style.display='';
@@ -159,13 +158,13 @@ $('#pg-next').onclick = ()=>{ recPage++; loadRecordings(); };
 let clDevice = null;
 function callLog(did){
   clDevice = (window._devices||[]).find(x=>x.id===did);
-  $('#cl-title').textContent = 'Nhật ký cuộc gọi — ' + (clDevice?clDevice.name:('#'+did));
+  $('#cl-title').textContent = 'Nhật ký cuộc gọi: ' + (clDevice?clDevice.name:('#'+did));
   const today = new Date().toISOString().slice(0,10);
   const wk = new Date(Date.now()-6*864e5).toISOString().slice(0,10);
   $('#cl-from').value = wk; $('#cl-to').value = today;
   $('#cl-status').textContent='';
   $('#cl-player-wrap').style.display='none';
-  $('#cl-body').innerHTML = '<div class="muted" style="padding:24px;text-align:center">Chọn khoảng ngày rồi bấm <b>Lấy nhật ký</b> — dữ liệu lấy trực tiếp từ thiết bị.</div>';
+  $('#cl-body').innerHTML = '<div class="empty">Chọn khoảng ngày rồi bấm Lấy nhật ký.</div>';
   $('#cl-modal').classList.remove('hidden');
 }
 $('#cl-close').onclick = ()=>{ $('#cl-player').pause(); $('#cl-modal').classList.add('hidden'); };
@@ -173,7 +172,7 @@ $('#cl-load').onclick = async ()=>{
   if(!clDevice) return;
   const from=$('#cl-from').value, to=$('#cl-to').value;
   if(!from||!to){ alert('Chọn khoảng ngày'); return; }
-  $('#cl-status').textContent='Đang lấy từ thiết bị... (tắt phần mềm gốc nếu đang mở)';
+  $('#cl-status').textContent='Đang lấy từ thiết bị...';
   $('#cl-load').disabled=true;
   try{
     const r = await api(`/api/devices/${clDevice.id}/calllog`,
@@ -184,17 +183,17 @@ $('#cl-load').onclick = async ()=>{
   } finally { $('#cl-load').disabled=false; }
 };
 function renderCallLog(items){
-  if(!items.length){ $('#cl-body').innerHTML='<div class="muted" style="padding:24px;text-align:center">Không có cuộc gọi trong khoảng này.</div>'; return; }
-  let h = `<table><thead><tr><th>Thời điểm</th><th>Hướng</th><th>Số ĐT</th><th>Kênh</th><th>Thời lượng</th><th>Dung lượng</th><th>Thao tác</th></tr></thead><tbody>`;
+  if(!items.length){ $('#cl-body').innerHTML='<div class="empty">Không có cuộc gọi trong khoảng này.</div>'; return; }
+  let h = `<table><thead><tr><th>Thời điểm</th><th>Hướng</th><th>Số ĐT</th><th>Kênh</th><th>Thời lượng</th><th>Dung lượng</th><th></th></tr></thead><tbody>`;
   items.forEach((x,i)=>{
-    const dir = x.direction==='Gọi đi' ? '<span class="dir out">↗ Gọi đi</span>'
-              : x.direction==='Gọi đến' ? '<span class="dir in">↘ Gọi đến</span>' : (x.direction||'');
+    const dir = x.direction==='Gọi đi' ? '<span class="dir out">Gọi đi</span>'
+              : x.direction==='Gọi đến' ? '<span class="dir in">Gọi đến</span>' : (x.direction||'');
     let act;
-    if(x.downloaded) act = `<button class="link" onclick="clPlayIdx(${i})">▶ Nghe</button>`;
-    else if(x.downloadable) act = `<button id="clbtn${i}" onclick="clFetch(${i})">⬇ Tải & nghe</button>`;
-    else act = '<span class="muted">—</span>';
-    h += `<tr><td>${x.call_time||'-'}</td><td>${dir}</td><td>${x.phone||'-'}</td><td>${x.channel||'-'}</td>
-      <td>${fmtDur(x.rec_time)}</td><td>${fmtBytes(x.filesize)}</td><td>${act}</td></tr>`;
+    if(x.downloaded) act = `<button class="link" onclick="clPlayIdx(${i})">Nghe</button>`;
+    else if(x.downloadable) act = `<button id="clbtn${i}" class="link" onclick="clFetch(${i})">Tải về</button>`;
+    else act = '<span class="muted">Không có file</span>';
+    h += `<tr><td class="num">${x.call_time||'-'}</td><td>${dir}</td><td class="num">${esc(x.phone||'-')}</td><td>${esc(x.channel||'-')}</td>
+      <td class="num">${fmtDur(x.rec_time)}</td><td class="num">${fmtBytes(x.filesize)}</td><td>${act}</td></tr>`;
   });
   h += '</tbody></table>';
   $('#cl-body').innerHTML = h;
@@ -207,11 +206,11 @@ async function clFetch(i){
   try{
     const r = await api(`/api/devices/${clDevice.id}/fetch`,
       {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cdr:x.cdr})});
-    if(!r.ok){ btn.disabled=false; btn.textContent='⬇ Tải & nghe'; alert('Lỗi tải: '+(r.error||'')); return; }
+    if(!r.ok){ btn.disabled=false; btn.textContent='Tải về'; alert('Lỗi tải: '+(r.error||'')); return; }
     x.downloaded=true; x.rec_id=r.rec_id;
-    btn.outerHTML = `<button class="link" onclick="clPlayIdx(${i})">▶ Nghe</button>`;
+    btn.outerHTML = `<button class="link" onclick="clPlayIdx(${i})">Nghe</button>`;
     if($('#cl-autoplay').checked) clPlay(r.rec_id,(x.phone||'')+' · '+(x.call_time||''));
-  } catch(e){ btn.disabled=false; btn.textContent='⬇ Tải & nghe'; alert('Lỗi: '+e); }
+  } catch(e){ btn.disabled=false; btn.textContent='Tải về'; alert('Lỗi: '+e); }
 }
 function clPlayIdx(i){
   const x=(window._clItems||[])[i]; if(!x||!x.rec_id) return;

@@ -63,7 +63,7 @@ def scheduler_loop():
                 lk = _dev_lock(d["id"])
                 if not lk.acquire(blocking=False):
                     log("bo qua chu ky #%d %s: thiet bi dang ban" % (d["id"], d["name"]))
-                    db.set_device_status(d["id"], "bo qua chu ky: dang ban")  # bump last_run so it retries next interval
+                    db.set_device_status(d["id"], "Bỏ qua chu kỳ: thiết bị đang bận")  # bump last_run so it retries next interval
                     continue
                 try:
                     log("auto-run device #%d %s" % (d["id"], d["name"]))
