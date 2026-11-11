@@ -26,7 +26,8 @@ async function loadDevices(){
     el.innerHTML += `<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:start">
         <div><h3>${d.name}</h3><div class="host">${d.host}:${d.port}</div></div>
-        <span class="badge ${d.enabled?'on':'off'}">${d.enabled?'Đang bật':'Tắt'}</span>
+        ${d.busy ? '<span class="badge busy">● Đang chạy</span>'
+                 : `<span class="badge ${d.enabled?'on':'off'}">${d.enabled?'Đang bật':'Tắt'}</span>`}
       </div>
       <div class="meta">
         Chu kỳ <b>${d.interval_min}'</b> · Lùi ${d.lookback_days} ngày<br>

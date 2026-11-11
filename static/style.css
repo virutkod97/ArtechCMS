@@ -63,3 +63,4 @@ pre#log-box{background:#0a0e16;border:1px solid var(--line);border-radius:9px;pa
 .live{color:var(--accent2);font-size:12px;display:inline-flex;align-items:center;gap:4px}
 .live::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent2);display:inline-block;animation:pulse 1.4s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.badge.busy{background:rgba(245,158,11,.18);color:var(--warn)}

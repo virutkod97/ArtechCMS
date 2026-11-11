@@ -29,6 +29,23 @@ def log(*a):
     print(line, flush=True)
 
 
+# ------------------------------------------------------------------ per-device busy lock
+# The device allows only a few concurrent 6066 sessions, so only ONE operation
+# (download / call-log / fetch / test) may talk to a given device at a time.
+_dev_locks = {}
+_dev_locks_guard = threading.Lock()
+
+def _dev_lock(did):
+    with _dev_locks_guard:
+        lk = _dev_locks.get(did)
+        if lk is None:
+            lk = _dev_locks[did] = threading.Lock()
+        return lk
+
+def device_busy(did):
+    return _dev_lock(did).locked()
+
+
 # ------------------------------------------------------------------ scheduler
 _sched_stop = threading.Event()
 
@@ -41,9 +58,18 @@ def scheduler_loop():
                 if not d["enabled"]:
                     continue
                 interval = max(1, int(d["interval_min"] or 15)) * 60
-                if now - int(d["last_run"] or 0) >= interval:
+                if now - int(d["last_run"] or 0) < interval:
+                    continue
+                lk = _dev_lock(d["id"])
+                if not lk.acquire(blocking=False):
+                    log("bo qua chu ky #%d %s: thiet bi dang ban" % (d["id"], d["name"]))
+                    db.set_device_status(d["id"], "bo qua chu ky: dang ban")  # bump last_run so it retries next interval
+                    continue
+                try:
                     log("auto-run device #%d %s" % (d["id"], d["name"]))
                     downloader.run_device(db, d, REC_ROOT, log=log)
+                finally:
+                    lk.release()
         except Exception as e:
             log("scheduler error: %s" % e)
         _sched_stop.wait(20)
@@ -61,7 +87,9 @@ def api_devices():
     devs = db.list_devices()
     for d in devs:
         d.pop("password", None)
+        d.pop("ftp_pass", None)
         d["recordings"] = db.count_recordings(d["id"])
+        d["busy"] = device_busy(d["id"])
     return jsonify(devs)
 
 @app.route("/api/devices", methods=["POST"])
@@ -100,8 +128,15 @@ def api_download_now(did):
             dates = [a + datetime.timedelta(days=i) for i in range((b - a).days + 1)]
         except Exception:
             return jsonify({"error": "from/to phai dang YYYY-MM-DD"}), 400
+    lk = _dev_lock(did)
+    if not lk.acquire(blocking=False):
+        return jsonify({"ok": False, "busy": True,
+                        "msg": "Thiết bị đang bận (có lệnh khác đang chạy). Thử lại sau."}), 409
     def job():
-        downloader.run_device(db, d, REC_ROOT, log=log, dates=dates)
+        try:
+            downloader.run_device(db, d, REC_ROOT, log=log, dates=dates)
+        finally:
+            lk.release()
     threading.Thread(target=job, daemon=True).start()
     rng = ("%s..%s" % (df, dt)) if dates else ("mặc định (%d ngày)" % int(d.get("lookback_days", 1) or 1))
     return jsonify({"ok": True, "msg": "Đã bắt đầu tải: %s" % rng})
@@ -121,7 +156,13 @@ def api_test_device(did):
         log("[test ftp %s] %s" % (d["host"], msg))
         return jsonify({"ok": ok, "msg": msg})
     # standalone db6066: a successful 6066 login is all that's needed
-    res = protocol.login_probe(d, log=log)
+    lk = _dev_lock(did)
+    if not lk.acquire(blocking=False):
+        return jsonify({"ok": False, "busy": True, "msg": "Thiết bị đang bận (có lệnh khác đang chạy). Thử lại sau."}), 409
+    try:
+        res = protocol.login_probe(d, log=log)
+    finally:
+        lk.release()
     return jsonify(res)
 
 
@@ -143,7 +184,13 @@ def api_calllog(did):
         date_to = datetime.datetime.strptime(body["to"], "%Y-%m-%d").date()
     except Exception:
         return jsonify({"error": "from/to phai dang YYYY-MM-DD"}), 400
-    rows, err = db_downloader.fetch_calllog(d, date_from, date_to, log=log)
+    lk = _dev_lock(did)
+    if not lk.acquire(blocking=False):
+        return jsonify({"error": "Thiết bị đang bận (có lệnh khác đang chạy). Thử lại sau.", "busy": True}), 409
+    try:
+        rows, err = db_downloader.fetch_calllog(d, date_from, date_to, log=log)
+    finally:
+        lk.release()
     if err:
         return jsonify({"error": err}), 502
     items = []
@@ -176,7 +223,13 @@ def api_fetch_one(did):
     cdr = request.get_json(force=True).get("cdr") or {}
     if not cdr.get("RecFilePath"):
         return jsonify({"error": "thieu RecFilePath"}), 400
-    rid, err = db_downloader.fetch_one(db, d, cdr, REC_ROOT, log=log)
+    lk = _dev_lock(did)
+    if not lk.acquire(blocking=False):
+        return jsonify({"ok": False, "busy": True, "error": "Thiết bị đang bận. Thử lại sau."}), 409
+    try:
+        rid, err = db_downloader.fetch_one(db, d, cdr, REC_ROOT, log=log)
+    finally:
+        lk.release()
     if err:
         return jsonify({"ok": False, "error": err}), 502
     return jsonify({"ok": True, "rec_id": rid})
