@@ -145,10 +145,69 @@ $('#btn-apply-filter').onclick = applyFilter;
 $('#rec-pagesize').onchange = ()=>{ if(recLoaded) applyFilter(); };
 $('#pg-prev').onclick = ()=>{ if(recPage>1){recPage--; loadRecordings();} };
 $('#pg-next').onclick = ()=>{ recPage++; loadRecordings(); };
-function callLog(did){            // from a device card -> its call log
-  gotoTab('recordings');
-  $('#rec-filter').value = String(did);
-  applyFilter();
+// ---------------- live call-log popup (fetch CDR directly from device)
+let clDevice = null;
+function callLog(did){
+  clDevice = (window._devices||[]).find(x=>x.id===did);
+  $('#cl-title').textContent = 'Nhật ký cuộc gọi — ' + (clDevice?clDevice.name:('#'+did));
+  const today = new Date().toISOString().slice(0,10);
+  const wk = new Date(Date.now()-6*864e5).toISOString().slice(0,10);
+  $('#cl-from').value = wk; $('#cl-to').value = today;
+  $('#cl-status').textContent='';
+  $('#cl-player-wrap').style.display='none';
+  $('#cl-body').innerHTML = '<div class="muted" style="padding:24px;text-align:center">Chọn khoảng ngày rồi bấm <b>Lấy nhật ký</b> — dữ liệu lấy trực tiếp từ thiết bị.</div>';
+  $('#cl-modal').classList.remove('hidden');
+}
+$('#cl-close').onclick = ()=>{ $('#cl-player').pause(); $('#cl-modal').classList.add('hidden'); };
+$('#cl-load').onclick = async ()=>{
+  if(!clDevice) return;
+  const from=$('#cl-from').value, to=$('#cl-to').value;
+  if(!from||!to){ alert('Chọn khoảng ngày'); return; }
+  $('#cl-status').textContent='Đang lấy từ thiết bị... (tắt phần mềm gốc nếu đang mở)';
+  $('#cl-load').disabled=true;
+  try{
+    const r = await api(`/api/devices/${clDevice.id}/calllog`,
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from,to})});
+    if(r.error){ $('#cl-status').textContent='Lỗi: '+r.error; $('#cl-body').innerHTML=''; return; }
+    $('#cl-status').textContent = `${r.total} cuộc gọi`;
+    renderCallLog(r.items);
+  } finally { $('#cl-load').disabled=false; }
+};
+function renderCallLog(items){
+  if(!items.length){ $('#cl-body').innerHTML='<div class="muted" style="padding:24px;text-align:center">Không có cuộc gọi trong khoảng này.</div>'; return; }
+  let h = `<table><thead><tr><th>Thời điểm</th><th>Hướng</th><th>Số ĐT</th><th>Kênh</th><th>Thời lượng</th><th>Dung lượng</th><th>Thao tác</th></tr></thead><tbody>`;
+  items.forEach((x,i)=>{
+    const dir = x.direction==='Gọi đi' ? '<span class="dir out">↗ Gọi đi</span>'
+              : x.direction==='Gọi đến' ? '<span class="dir in">↘ Gọi đến</span>' : (x.direction||'');
+    let act;
+    if(x.downloaded) act = `<button class="link" onclick="clPlay(${x.rec_id}, ${JSON.stringify((x.phone||'')+' · '+(x.call_time||''))})">▶ Nghe</button>`;
+    else if(x.downloadable) act = `<button id="clbtn${i}" onclick='clFetch(${i})'>⬇ Tải & nghe</button>`;
+    else act = '<span class="muted">—</span>';
+    h += `<tr><td>${x.call_time||'-'}</td><td>${dir}</td><td>${x.phone||'-'}</td><td>${x.channel||'-'}</td>
+      <td>${fmtDur(x.rec_time)}</td><td>${fmtBytes(x.filesize)}</td><td>${act}</td></tr>`;
+  });
+  h += '</tbody></table>';
+  $('#cl-body').innerHTML = h;
+  window._clItems = items;
+}
+async function clFetch(i){
+  const x = window._clItems[i];
+  const btn = $('#clbtn'+i);
+  btn.disabled=true; btn.textContent='Đang tải...';
+  try{
+    const r = await api(`/api/devices/${clDevice.id}/fetch`,
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cdr:x.cdr})});
+    if(!r.ok){ btn.disabled=false; btn.textContent='⬇ Tải & nghe'; alert('Lỗi tải: '+(r.error||'')); return; }
+    x.downloaded=true; x.rec_id=r.rec_id;
+    btn.outerHTML = `<button class="link" onclick="clPlay(${r.rec_id}, ${JSON.stringify((x.phone||'')+' · '+(x.call_time||''))})">▶ Nghe</button>`;
+    if($('#cl-autoplay').checked) clPlay(r.rec_id,(x.phone||'')+' · '+(x.call_time||''));
+  } catch(e){ btn.disabled=false; btn.textContent='⬇ Tải & nghe'; alert('Lỗi: '+e); }
+}
+function clPlay(rid,title){
+  $('#cl-player-wrap').style.display='block';
+  $('#cl-player-title').textContent = title||'';
+  const p=$('#cl-player'); p.src='/api/recordings/'+rid+'/play'; p.play();
+  $('#cl-player-wrap').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
 // ---------------- logs + update

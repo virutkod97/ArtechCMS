@@ -143,6 +143,37 @@
   </div>
 </div>
 
+<!-- call-log popup (live from device) -->
+<div id="cl-modal" class="modal hidden">
+  <div class="modal-box" style="width:900px">
+    <h3 id="cl-title">Nhật ký cuộc gọi</h3>
+    <div class="filterbar" style="margin-top:0">
+      <label>Từ ngày <input type="date" id="cl-from"></label>
+      <label>Đến ngày <input type="date" id="cl-to"></label>
+      <label class="chk" style="flex-direction:row;align-items:center;gap:6px">
+        <input type="checkbox" id="cl-autoplay" checked> Tự nghe sau khi tải</label>
+      <button class="primary" id="cl-load">Lấy nhật ký</button>
+      <span id="cl-status" class="muted"></span>
+    </div>
+
+    <div id="cl-player-wrap" style="display:none;margin-bottom:10px">
+      <div id="cl-player-title" class="muted" style="margin-bottom:4px"></div>
+      <audio id="cl-player" controls style="width:100%"></audio>
+    </div>
+
+    <div id="cl-body" style="max-height:52vh;overflow:auto">
+      <div class="muted" style="padding:24px;text-align:center">
+        Chọn khoảng ngày rồi bấm <b>Lấy nhật ký</b> — dữ liệu lấy trực tiếp từ thiết bị.
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:14px">
+      <div class="spacer"></div>
+      <button id="cl-close" class="ghost">Đóng</button>
+    </div>
+  </div>
+</div>
+
 <script src="/static/app.js"></script>
 </body>
 </html>

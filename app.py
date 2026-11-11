@@ -126,6 +126,61 @@ def api_test_device(did):
 
 
 # ------------------------------------------------------------------ recordings API
+CDR_FIELDS = ["AutoID", "RecFilePath", "RecType", "RecChannel", "RingTime",
+              "RecTime", "TalkTime", "FileSize", "PhoneNumber", "SystemID", "SystemName"]
+
+@app.route("/api/devices/<int:did>/calllog", methods=["POST"])
+def api_calllog(did):
+    """Pull the device's call log (CDR) for a date range, live from the device."""
+    import datetime
+    from artech import db_downloader
+    d = db.get_device(did)
+    if not d:
+        return jsonify({"error": "not found"}), 404
+    body = request.get_json(force=True)
+    try:
+        date_from = datetime.datetime.strptime(body["from"], "%Y-%m-%d").date()
+        date_to = datetime.datetime.strptime(body["to"], "%Y-%m-%d").date()
+    except Exception:
+        return jsonify({"error": "from/to phai dang YYYY-MM-DD"}), 400
+    rows, err = db_downloader.fetch_calllog(d, date_from, date_to, log=log)
+    if err:
+        return jsonify({"error": err}), 502
+    items = []
+    for r in rows:
+        path = r.get("RecFilePath") or ""
+        name = path.replace("/", "\\").rsplit("\\", 1)[-1]
+        meta = protocol.parse_recording_name(name)
+        ex = db.c.execute("SELECT id FROM recordings WHERE device_id=? AND remote_path=?",
+                          (did, path)).fetchone()
+        items.append({
+            **meta,
+            "filename": name,
+            "filesize": int(r.get("FileSize", 0) or 0),
+            "rec_time": int(r.get("RecTime", 0) or 0),
+            "downloadable": name.lower().endswith(".wav") and int(r.get("FileSize", 0) or 0) > 0,
+            "downloaded": bool(ex),
+            "rec_id": ex[0] if ex else None,
+            "cdr": {k: r.get(k) for k in CDR_FIELDS},
+        })
+    items.sort(key=lambda x: x.get("call_ts", 0), reverse=True)
+    return jsonify({"total": len(items), "items": items})
+
+@app.route("/api/devices/<int:did>/fetch", methods=["POST"])
+def api_fetch_one(did):
+    """Download one recording (by its CDR row) on demand; store + return rec_id."""
+    from artech import db_downloader
+    d = db.get_device(did)
+    if not d:
+        return jsonify({"error": "not found"}), 404
+    cdr = request.get_json(force=True).get("cdr") or {}
+    if not cdr.get("RecFilePath"):
+        return jsonify({"error": "thieu RecFilePath"}), 400
+    rid, err = db_downloader.fetch_one(db, d, cdr, REC_ROOT, log=log)
+    if err:
+        return jsonify({"ok": False, "error": err}), 502
+    return jsonify({"ok": True, "rec_id": rid})
+
 @app.route("/api/recordings")
 def api_recordings():
     import datetime
