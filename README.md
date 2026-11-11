@@ -54,16 +54,17 @@ data/artechcms.db     Cơ sở dữ liệu
 
 ## Phương thức tải
 
-**DB + 6066 (khuyến nghị):** Phần mềm gốc Artech lưu mỗi thiết bị một thư mục
-(đặt tên theo serial, vd `55260439`) chứa SQLite theo ngày `CDR<YYYYMMDD>.db`
-(bảng `CdrTable`, cột `RecFilePath` + metadata đầy đủ). ArtechCMS đọc các DB này
-để lấy danh sách cuộc gọi, rồi tải từng file WAV từ thiết bị qua cổng **6066**
-bằng lệnh `0c/06` dựng chính xác từ bản ghi CDR (đã kiểm chứng byte-exact với
-capture thật). Chỉ tải file đã hoàn tất (`.wav`, FileSize>0; bỏ qua `.tmp`),
-dedup theo `RecFilePath`.
-Cấu hình: chọn "DB + 6066", điền **Thư mục DB** trỏ tới thư mục serial đó.
-Yêu cầu: phần mềm gốc vẫn chạy để cập nhật CDR DB (nó chỉ index cuộc gọi, phần
-tải file nặng do ArtechCMS làm).
+**DB + 6066 (khuyến nghị):** Thiết bị lưu danh sách cuộc gọi trong SQLite theo
+ngày (`CdrTable`, cột `RecFilePath` + metadata). ArtechCMS lấy danh sách này rồi
+tải từng WAV qua cổng **6066** bằng lệnh `0c/06` dựng byte-exact từ bản ghi CDR
+(đã kiểm chứng 10/10 với capture thật). Chỉ tải file hoàn tất (`.wav`, FileSize>0),
+bỏ qua `.tmp`, dedup theo `RecFilePath`. Hai nguồn danh sách CDR:
+
+- **Standalone (để trống Thư mục DB):** ArtechCMS tự tải file DB của thiết bị qua
+  6066 — đường dẫn `\Hard Disk\Sqlite\<YYYY>\<YYYYMM>\CDR<YYYYMMDD>.db` cho N ngày
+  gần nhất (theo "Số ngày lùi") — rồi đọc. **Không cần phần mềm gốc.**
+- **Local (điền Thư mục DB):** đọc CDR*.db do phần mềm gốc tạo (thư mục theo serial,
+  vd `55260439`). Dùng khi muốn tận dụng DB phần mềm gốc đã có.
 
 **FTP:** nếu thiết bị có bật FTP server — duyệt đệ quy, tải `.wav` mới. (Thiết bị
 AJ2L test không có FTP.)

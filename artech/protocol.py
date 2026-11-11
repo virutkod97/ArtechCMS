@@ -266,18 +266,20 @@ class FrameConn:
             self._fill(timeout)
 
 
-def download_file(conn, row, log=lambda *a: None):
+def download_by_request(conn, request_payload):
     """
-    Download one recording via the 6066 protocol. conn is a logged-in FrameConn.
-    Returns raw file bytes (starts with RIFF) or None on failure.
+    Core download choreography: send a 0c/06 request, pull 0c/07 chunks until the
+    declared size (0c/0a) is reached, send 0c/08. Returns the raw file bytes.
     """
-    conn.send(0x0c, 0x06, build_cdr_request(row))
+    conn.send(0x0c, 0x06, request_payload)
     size = None; data = bytearray()
-    for _ in range(100000):
+    for _ in range(500000):
         conn.send(0x0c, 0x07, bytes.fromhex("00100000"))   # request next chunk
         cmd, sub, pl = conn.read_frame()
         if cmd == 0x0c and sub == 0x0a:
             size = struct.unpack_from("<I", pl, 0)[0]       # total payload size
+            if size == 0:
+                break
             continue
         if cmd == 0x0c and sub == 0x07:
             data += pl[4:]                                  # strip 4-byte chunk prefix
@@ -285,13 +287,36 @@ def download_file(conn, row, log=lambda *a: None):
                 break
         elif cmd == 0x0c and sub == 0x08:
             break
-        # ignore other frames (heartbeats etc.)
+        # ignore other frames (heartbeats, status, etc.)
     conn.send(0x0c, 0x08, bytes.fromhex("0000"))            # ack/close file
+    return bytes(data)
+
+
+def download_file(conn, row, log=lambda *a: None):
+    """Download one recording. Returns WAV bytes (starts with RIFF) or None."""
+    data = download_by_request(conn, build_cdr_request(row))
     if data[:4] != b"RIFF":
-        log("download_file: khong nhan duoc RIFF cho %s (got %d bytes)" % (row.get("RecFilePath"), len(data)))
+        log("download_file: khong nhan RIFF cho %s (got %d bytes)" % (row.get("RecFilePath"), len(data)))
         return None
     riffsz = struct.unpack_from("<I", data, 4)[0] + 8
     return bytes(data[:riffsz])
+
+
+def build_path_request(remote_path, when=None):
+    """Build a 0c/06 request for an arbitrary device path (e.g. a CDR .db file).
+    Only the path matters for the device to locate the file; metadata is minimal."""
+    import datetime
+    b = bytearray(1008)
+    dt = when or datetime.datetime.now()
+    struct.pack_into("<8H", b, 8, dt.year, dt.month, dt.isoweekday() % 7, dt.day, 0, 0, 0, 0)
+    p = remote_path.encode("utf-16-le"); b[384:384+len(p)] = p
+    b[784] = 0x20
+    return bytes(b)
+
+
+def download_path(conn, remote_path, when=None):
+    """Download an arbitrary file (e.g. the device's daily CDR DB) by path. Raw bytes."""
+    return download_by_request(conn, build_path_request(remote_path, when))
 
 
 def login_and_handshake(device, log=lambda *a: None):
