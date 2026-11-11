@@ -206,6 +206,113 @@ def _hex(b, n=64):
     return b[:n].hex() + (" ...(+%d)" % (len(b) - n) if len(b) > n else "")
 
 
+# ---------------------------------------------------------------- frame I/O + file download (via CDR DB)
+def frame(cmd, sub, payload=b""):
+    """Build a wire frame: u16 length (= 2 + len(payload)) + cmd + sub + payload."""
+    body = bytes([cmd, sub]) + payload
+    return struct.pack("<H", len(body)) + body
+
+
+def build_cdr_request(row):
+    """
+    Build the 1008-byte 0c/06 download-request payload from a CDR DB row (dict with
+    keys: AutoID, RecFilePath, RecType, RecChannel, RingTime, RecTime, TalkTime,
+    FileSize, PhoneNumber, SystemID, SystemName). Verified byte-exact vs captures.
+    """
+    import datetime
+    b = bytearray(1008)
+    struct.pack_into("<I", b, 0, int(row.get("AutoID", 0)))
+    ts = row["RecFilePath"].rsplit("\\", 1)[-1][:14]        # YYYYMMDDHHMMSS from filename
+    dt = datetime.datetime.strptime(ts, "%Y%m%d%H%M%S")
+    dow = dt.isoweekday() % 7
+    struct.pack_into("<8H", b, 8, dt.year, dt.month, dow, dt.day, dt.hour, dt.minute, dt.second, 0)
+    struct.pack_into("<I", b, 24, (int(row.get("RecType", 0)) & 0xff) | ((int(row.get("RecChannel", 0)) & 0xff) << 8))
+    struct.pack_into("<I", b, 28, int(row.get("RingTime", 0) or 0))
+    struct.pack_into("<I", b, 32, int(row.get("RecTime", 0) or 0))
+    struct.pack_into("<I", b, 36, int(row.get("TalkTime", 0) or 0))
+    struct.pack_into("<I", b, 40, int(row.get("FileSize", 0) or 0))
+    def w(off, s):
+        x = (s or "").encode("utf-16-le"); b[off:off+len(x)] = x
+    w(44, str(row.get("PhoneNumber", "") or ""))
+    w(384, row["RecFilePath"]); b[784] = 0x20
+    w(848, str(row.get("SystemID", "") or ""))
+    w(880, str(row.get("SystemName", "") or ""))
+    return bytes(b)
+
+
+class FrameConn:
+    """Buffered frame reader/writer over a socket."""
+    def __init__(self, sock):
+        self.s = sock; self.buf = bytearray()
+
+    def send(self, cmd, sub, payload=b""):
+        self.s.sendall(frame(cmd, sub, payload))
+
+    def _fill(self, timeout=8.0):
+        self.s.settimeout(timeout)
+        d = self.s.recv(65535)
+        if not d:
+            raise ConnectionError("closed")
+        self.buf += d
+
+    def read_frame(self, timeout=8.0):
+        """Return (cmd, sub, payload) for the next complete frame, or raise on close/timeout."""
+        while True:
+            if len(self.buf) >= 2:
+                ln = struct.unpack_from("<H", self.buf, 0)[0]
+                if len(self.buf) >= 2 + ln:
+                    body = bytes(self.buf[2:2+ln]); del self.buf[:2+ln]
+                    return body[0], body[1], body[2:]
+            self._fill(timeout)
+
+
+def download_file(conn, row, log=lambda *a: None):
+    """
+    Download one recording via the 6066 protocol. conn is a logged-in FrameConn.
+    Returns raw file bytes (starts with RIFF) or None on failure.
+    """
+    conn.send(0x0c, 0x06, build_cdr_request(row))
+    size = None; data = bytearray()
+    for _ in range(100000):
+        conn.send(0x0c, 0x07, bytes.fromhex("00100000"))   # request next chunk
+        cmd, sub, pl = conn.read_frame()
+        if cmd == 0x0c and sub == 0x0a:
+            size = struct.unpack_from("<I", pl, 0)[0]       # total payload size
+            continue
+        if cmd == 0x0c and sub == 0x07:
+            data += pl[4:]                                  # strip 4-byte chunk prefix
+            if size is not None and len(data) >= size:
+                break
+        elif cmd == 0x0c and sub == 0x08:
+            break
+        # ignore other frames (heartbeats etc.)
+    conn.send(0x0c, 0x08, bytes.fromhex("0000"))            # ack/close file
+    if data[:4] != b"RIFF":
+        log("download_file: khong nhan duoc RIFF cho %s (got %d bytes)" % (row.get("RecFilePath"), len(data)))
+        return None
+    riffsz = struct.unpack_from("<I", data, 4)[0] + 8
+    return bytes(data[:riffsz])
+
+
+def login_and_handshake(device, log=lambda *a: None):
+    """Connect + login. Returns a logged-in FrameConn (device-info frames are drained
+    lazily; download_file ignores any non-download frames)."""
+    host = device["host"]; port = int(device.get("port", PORT))
+    s = socket.create_connection((host, port), timeout=10)
+    conn = FrameConn(s)
+    # build_login() returns the full 322-byte frame; strip its 4-byte len+cmd+sub header
+    conn.send(0x01, 0x00, build_login(device.get("user", "admin"), device.get("password", ""),
+              device.get("version", "150116 1.0.0.5"), device.get("client_ip", ""),
+              device.get("mac", ""), host)[4:])
+    t0 = time.time()
+    while time.time() - t0 < 6:
+        cmd, sub, pl = conn.read_frame(timeout=6)
+        if cmd == 0x01 and sub == 0x02:
+            log("login OK")
+            return conn
+    raise ConnectionError("no login reply (01/02)")
+
+
 def login_probe(device, log=lambda *a: None):
     """
     Try to log in and report, in detail, why it did or didn't work.

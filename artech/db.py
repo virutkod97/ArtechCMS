@@ -55,11 +55,12 @@ class DB:
     def _migrate(self):
         cols = {r["name"] for r in self.c.execute("PRAGMA table_info(devices)")}
         add = {
-            "method": "TEXT DEFAULT 'ftp'",
+            "method": "TEXT DEFAULT 'db6066'",
             "ftp_port": "INTEGER DEFAULT 21",
             "ftp_user": "TEXT DEFAULT ''",
             "ftp_pass": "TEXT DEFAULT ''",
             "ftp_root": "TEXT DEFAULT '/'",
+            "db_folder": "TEXT DEFAULT ''",
         }
         for name, decl in add.items():
             if name not in cols:
@@ -99,20 +100,21 @@ class DB:
     def add_device(self, d):
         with _LOCK:
             cur = self.c.execute("""INSERT INTO devices(name,host,port,user,password,version,
-                client_ip,mac,enabled,interval_min,lookback_days,method,ftp_port,ftp_user,ftp_pass,ftp_root)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                client_ip,mac,enabled,interval_min,lookback_days,method,ftp_port,ftp_user,ftp_pass,ftp_root,db_folder)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (d["name"], d["host"], int(d.get("port", 6066)), d.get("user", "admin"),
                  secret.encrypt(d.get("password", "")), d.get("version", "150116 1.0.0.5"),
                  d.get("client_ip", ""), d.get("mac", ""), int(d.get("enabled", 1)),
                  int(d.get("interval_min", 15)), int(d.get("lookback_days", 1)),
-                 d.get("method", "ftp"), int(d.get("ftp_port", 21) or 21),
-                 d.get("ftp_user", ""), secret.encrypt(d.get("ftp_pass", "")), d.get("ftp_root", "/")))
+                 d.get("method", "db6066"), int(d.get("ftp_port", 21) or 21),
+                 d.get("ftp_user", ""), secret.encrypt(d.get("ftp_pass", "")), d.get("ftp_root", "/"),
+                 d.get("db_folder", "")))
             self.c.commit(); return cur.lastrowid
 
     def update_device(self, did, d):
         fields = ["name","host","port","user","password","version","client_ip","mac",
                   "enabled","interval_min","lookback_days","method","ftp_port",
-                  "ftp_user","ftp_pass","ftp_root"]
+                  "ftp_user","ftp_pass","ftp_root","db_folder"]
         d = dict(d)
         if not d.get("password"): d.pop("password", None)      # blank = keep current
         else: d["password"] = secret.encrypt(d["password"])

@@ -60,11 +60,19 @@
       <label>IP thiết bị <input id="f-host" placeholder="10.43.12.240"></label>
       <label>Phương thức tải
         <select id="f-method">
-          <option value="ftp">FTP (khuyến nghị)</option>
-          <option value="net">Giao thức 6066</option>
+          <option value="db6066">DB + 6066 (khuyến nghị)</option>
+          <option value="ftp">FTP</option>
+          <option value="net">6066 thuần</option>
         </select>
       </label>
     </div>
+
+    <fieldset class="grp" data-method="db6066">
+      <legend>DB + 6066</legend>
+      <label>Thư mục DB của phần mềm gốc (chứa CDR*.db, tên theo serial)
+        <input id="f-db_folder" placeholder="C:\ProgramData\...\55260439"></label>
+      <div class="hint">Đọc CDR*.db để lấy danh sách cuộc gọi, rồi tải WAV qua cổng 6066.</div>
+    </fieldset>
 
     <fieldset class="grp" data-method="ftp">
       <legend>FTP</legend>

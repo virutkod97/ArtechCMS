@@ -13,10 +13,13 @@ def _duration(wav):
 
 def run_device(db, device, rec_root, log=lambda *a: None):
     """Dispatch to FTP (reliable) or the 6066 net protocol based on device.method."""
-    method = (device.get("method") or "ftp").lower()
+    method = (device.get("method") or "db6066").lower()
     if method == "ftp":
         from . import ftp_downloader
         return ftp_downloader.run_device_ftp(db, device, rec_root, log=log)
+    if method == "db6066":
+        from . import db_downloader
+        return db_downloader.run_device_db(db, device, rec_root, log=log)
     return run_device_net(db, device, rec_root, log=log)
 
 

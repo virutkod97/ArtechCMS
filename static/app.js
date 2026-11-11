@@ -50,7 +50,7 @@ async function delDevice(id){
   await api(`/api/devices/${id}`,{method:'DELETE'}); loadDevices();
 }
 const FIELDS=['id','name','host','port','user','version','client_ip','mac',
-  'interval_min','lookback_days','method','ftp_port','ftp_user','ftp_root'];
+  'interval_min','lookback_days','method','ftp_port','ftp_user','ftp_root','db_folder'];
 function applyMethod(){
   const m=$('#f-method').value;
   $$('.grp').forEach(g=>g.style.display = g.dataset.method===m?'':'none');
@@ -73,7 +73,7 @@ $('#btn-add-device').onclick = ()=>openModal({});
 $('#btn-cancel').onclick = ()=>$('#modal').classList.add('hidden');
 function formData(){
   const d={}; ['name','host','port','user','version','client_ip','mac','interval_min','lookback_days',
-    'method','ftp_port','ftp_user','ftp_root'].forEach(k=>d[k]=$('#f-'+k).value);
+    'method','ftp_port','ftp_user','ftp_root','db_folder'].forEach(k=>d[k]=$('#f-'+k).value);
   const pw=$('#f-password').value; if(pw) d.password=pw;          // blank = keep current
   const fp=$('#f-ftp_pass').value; if(fp) d.ftp_pass=fp;
   d.enabled = $('#f-enabled').checked?1:0; return d;

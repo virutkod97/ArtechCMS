@@ -54,14 +54,29 @@ data/artechcms.db     Cơ sở dữ liệu
 
 ## Phương thức tải
 
-**FTP (khuyến nghị):** Dòng Artech này thường có sẵn FTP server cho SD card.
-ArtechCMS duyệt đệ quy thư mục (mặc định `/`, có thể đặt `/Hard Disk`), tải file
-`.wav` mới, dedup theo đường dẫn trên server. Đây là cách ổn định nhất.
-Cấu hình: chọn "FTP" trong phần Phương thức tải, điền FTP port/user/pass/thư mục gốc.
+**DB + 6066 (khuyến nghị):** Phần mềm gốc Artech lưu mỗi thiết bị một thư mục
+(đặt tên theo serial, vd `55260439`) chứa SQLite theo ngày `CDR<YYYYMMDD>.db`
+(bảng `CdrTable`, cột `RecFilePath` + metadata đầy đủ). ArtechCMS đọc các DB này
+để lấy danh sách cuộc gọi, rồi tải từng file WAV từ thiết bị qua cổng **6066**
+bằng lệnh `0c/06` dựng chính xác từ bản ghi CDR (đã kiểm chứng byte-exact với
+capture thật). Chỉ tải file đã hoàn tất (`.wav`, FileSize>0; bỏ qua `.tmp`),
+dedup theo `RecFilePath`.
+Cấu hình: chọn "DB + 6066", điền **Thư mục DB** trỏ tới thư mục serial đó.
+Yêu cầu: phần mềm gốc vẫn chạy để cập nhật CDR DB (nó chỉ index cuộc gọi, phần
+tải file nặng do ArtechCMS làm).
 
-**Giao thức 6066:** dùng khi thiết bị không bật FTP. Lưu ý: luồng tải file qua 6066
-phụ thuộc trạng thái nội bộ của phần mềm gốc (thư mục `Record_N`, metadata cuộc gọi)
-nên tái tạo chưa hoàn chỉnh — ưu tiên FTP.
+**FTP:** nếu thiết bị có bật FTP server — duyệt đệ quy, tải `.wav` mới. (Thiết bị
+AJ2L test không có FTP.)
+
+**6066 thuần:** best-effort khi không có DB; chưa hoàn chỉnh.
+
+### Tìm thư mục DB
+Thư mục serial (vd `55260439`) nằm trong thư mục cài/dữ liệu của phần mềm gốc.
+Tìm nhanh:
+```cmd
+dir /s /b C:\CDR*.db 2>nul
+```
+Lấy thư mục cha chứa các file `CDR*.db`.
 
 ## Cập nhật online
 Nút **⟳ Update**: nếu thư mục là git clone và có cài git → `git pull`; nếu chạy từ

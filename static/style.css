@@ -49,3 +49,5 @@ pre#log-box{background:#0a0e16;border:1px solid var(--line);border-radius:9px;pa
 .link{color:var(--accent);background:none;border:none;padding:0;text-decoration:underline}
 .grp{border:1px solid var(--line);border-radius:8px;padding:10px 12px 2px;margin-bottom:11px}
 .grp legend{color:var(--muted);font-size:12px;padding:0 6px}
+
+.hint{color:var(--muted);font-size:11.5px;margin-top:2px}
