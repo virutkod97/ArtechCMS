@@ -54,6 +54,7 @@ function openModal(d){
   $('#modal-title').textContent = d.id?'Sửa thiết bị':'Thêm thiết bị';
   ['id','name','host','port','user','password','version','client_ip','mac','interval_min','lookback_days']
     .forEach(k=>{ const e=$('#f-'+k); if(e) e.value = d[k]!==undefined?d[k]:(e.defaultValue||''); });
+  $('#f-password').value=''; $('#f-password').placeholder = d.id?'để trống = giữ nguyên':'nhập mật khẩu';
   $('#f-enabled').checked = d.enabled===undefined?true:!!d.enabled;
   $('#test-result').textContent='';
   $('#modal').classList.remove('hidden');

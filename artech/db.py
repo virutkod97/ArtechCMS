@@ -1,5 +1,6 @@
 """SQLite storage for ArtechCMS: devices, recordings, settings."""
 import sqlite3, os, threading, time
+from . import secret
 
 _LOCK = threading.Lock()
 
@@ -25,7 +26,7 @@ class DB:
             host TEXT NOT NULL,
             port INTEGER DEFAULT 6066,
             user TEXT DEFAULT 'admin',
-            password TEXT DEFAULT '1111',
+            password TEXT DEFAULT '',
             version TEXT DEFAULT '150116 1.0.0.5',
             client_ip TEXT DEFAULT '',
             mac TEXT DEFAULT '',
@@ -63,11 +64,14 @@ class DB:
 
     # ---- devices
     def list_devices(self):
-        return [dict(r) for r in self.c.execute("SELECT * FROM devices ORDER BY id").fetchall()]
+        out = [dict(r) for r in self.c.execute("SELECT * FROM devices ORDER BY id").fetchall()]
+        for d in out: d["password"] = secret.decrypt(d.get("password"))
+        return out
 
     def get_device(self, did):
         r = self.c.execute("SELECT * FROM devices WHERE id=?", (did,)).fetchone()
-        return dict(r) if r else None
+        if not r: return None
+        d = dict(r); d["password"] = secret.decrypt(d.get("password")); return d
 
     def add_device(self, d):
         with _LOCK:
@@ -75,7 +79,7 @@ class DB:
                 client_ip,mac,enabled,interval_min,lookback_days)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (d["name"], d["host"], int(d.get("port", 6066)), d.get("user", "admin"),
-                 d.get("password", "1111"), d.get("version", "150116 1.0.0.5"),
+                 secret.encrypt(d.get("password", "")), d.get("version", "150116 1.0.0.5"),
                  d.get("client_ip", ""), d.get("mac", ""), int(d.get("enabled", 1)),
                  int(d.get("interval_min", 15)), int(d.get("lookback_days", 1))))
             self.c.commit(); return cur.lastrowid
@@ -83,6 +87,9 @@ class DB:
     def update_device(self, did, d):
         fields = ["name","host","port","user","password","version","client_ip","mac",
                   "enabled","interval_min","lookback_days"]
+        d = dict(d)
+        if not d.get("password"): d.pop("password", None)      # blank = keep current
+        else: d["password"] = secret.encrypt(d["password"])
         sets = ", ".join("%s=?" % f for f in fields if f in d)
         vals = [d[f] for f in fields if f in d]
         if not sets: return
