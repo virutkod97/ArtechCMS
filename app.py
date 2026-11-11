@@ -168,13 +168,38 @@ def _update_via_git():
                                   stderr=subprocess.STDOUT, timeout=60).decode("utf-8", "ignore")
     return "git pull:\n" + out
 
+def _https_get(url, dest):
+    """Download url to dest, tolerating corporate TLS interception / missing CA bundle."""
+    import urllib.request, ssl
+    # 1) try with certifi's CA bundle if available
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        with urllib.request.urlopen(url, context=ctx, timeout=60) as r, open(dest, "wb") as f:
+            f.write(r.read())
+        return
+    except Exception:
+        pass
+    # 2) try the system default
+    try:
+        with urllib.request.urlopen(url, timeout=60) as r, open(dest, "wb") as f:
+            f.write(r.read())
+        return
+    except Exception as e:
+        log("update: TLS verify that bai (%s) - thu che do khong xac thuc" % e)
+    # 3) last resort: unverified (internal tool, GitHub source)
+    ctx = ssl._create_unverified_context()
+    with urllib.request.urlopen(url, context=ctx, timeout=60) as r, open(dest, "wb") as f:
+        f.write(r.read())
+
+
 def _update_via_zip():
     """Download repo zip from GitHub and overwrite code files (keep data/, recordings/)."""
-    import urllib.request, zipfile, tempfile, shutil
+    import zipfile, tempfile, shutil
     log("update: tai zip tu %s" % ZIP_URL)
     tmp = tempfile.mkdtemp()
     zp = os.path.join(tmp, "repo.zip")
-    urllib.request.urlretrieve(ZIP_URL, zp)
+    _https_get(ZIP_URL, zp)
     with zipfile.ZipFile(zp) as z:
         z.extractall(tmp)
     # find extracted root (ArtechCMS-main)

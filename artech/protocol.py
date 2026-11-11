@@ -265,30 +265,62 @@ class FrameConn:
                     return body[0], body[1], body[2:]
             self._fill(timeout)
 
+    def drain(self, idle=0.4, hard=3.0):
+        """Discard any buffered + in-flight bytes until the socket goes quiet.
+        Call between files so one transfer's trailing frames can't leak into the next."""
+        self.buf.clear()
+        self.s.setblocking(False)
+        t0 = last = time.time()
+        try:
+            while True:
+                try:
+                    d = self.s.recv(65535)
+                    if d:
+                        last = time.time()
+                    else:
+                        break
+                except (BlockingIOError, BrokenPipeError, OSError):
+                    now = time.time()
+                    if now - last > idle or now - t0 > hard:
+                        break
+                    time.sleep(0.03)
+        finally:
+            try: self.s.setblocking(True)
+            except Exception: pass
+        self.buf.clear()
+
 
 def download_by_request(conn, request_payload):
     """
-    Core download choreography: send a 0c/06 request, pull 0c/07 chunks until the
-    declared size (0c/0a) is reached, send 0c/08. Returns the raw file bytes.
+    One file transfer: 0c/06 request -> 0c/0a (size) -> pull 0c/07 chunks -> 0c/08.
+    Sends exactly one chunk request per received chunk (no request-ahead), ignores
+    interleaved heartbeats, and drains trailing frames so the next file starts clean.
     """
+    conn.drain()                                           # start clean
     conn.send(0x0c, 0x06, request_payload)
-    size = None; data = bytearray()
+    size = None; data = bytearray(); requested = False
     for _ in range(500000):
-        conn.send(0x0c, 0x07, bytes.fromhex("00100000"))   # request next chunk
+        # ask for the next chunk only when we still need data and the previous
+        # request has been answered (strict 1 request : 1 chunk)
+        if (size is None or len(data) < size) and not requested:
+            conn.send(0x0c, 0x07, bytes.fromhex("00100000"))
+            requested = True
         cmd, sub, pl = conn.read_frame()
         if cmd == 0x0c and sub == 0x0a:
-            size = struct.unpack_from("<I", pl, 0)[0]       # total payload size
+            size = struct.unpack_from("<I", pl, 0)[0]
+            requested = False                              # 0c/0a is not a chunk
             if size == 0:
                 break
-            continue
-        if cmd == 0x0c and sub == 0x07:
-            data += pl[4:]                                  # strip 4-byte chunk prefix
+        elif cmd == 0x0c and sub == 0x07:
+            data += pl[4:]                                 # strip 4-byte chunk prefix
+            requested = False
             if size is not None and len(data) >= size:
                 break
         elif cmd == 0x0c and sub == 0x08:
             break
-        # ignore other frames (heartbeats, status, etc.)
+        # else: heartbeat/status -> ignore, keep waiting for the answer
     conn.send(0x0c, 0x08, bytes.fromhex("0000"))            # ack/close file
+    conn.drain()                                            # discard the device's end-ack + any stragglers
     return bytes(data)
 
 
