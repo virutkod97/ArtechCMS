@@ -45,6 +45,16 @@ def _dev_lock(did):
 def device_busy(did):
     return _dev_lock(did).locked()
 
+# stop requests for running download jobs (checked between/during transfers)
+_stop_flags = {}
+
+def _stop_flag(did):
+    with _dev_locks_guard:
+        ev = _stop_flags.get(did)
+        if ev is None:
+            ev = _stop_flags[did] = threading.Event()
+        return ev
+
 
 # ------------------------------------------------------------------ scheduler
 _sched_stop = threading.Event()
@@ -67,7 +77,8 @@ def scheduler_loop():
                     continue
                 try:
                     log("auto-run device #%d %s" % (d["id"], d["name"]))
-                    downloader.run_device(db, d, REC_ROOT, log=log)
+                    ev = _stop_flag(d["id"]); ev.clear()
+                    downloader.run_device(db, d, REC_ROOT, log=log, should_stop=ev.is_set)
                 finally:
                     lk.release()
         except Exception as e:
@@ -132,14 +143,26 @@ def api_download_now(did):
     if not lk.acquire(blocking=False):
         return jsonify({"ok": False, "busy": True,
                         "msg": "Thiết bị đang bận (có lệnh khác đang chạy). Thử lại sau."}), 409
+    ev = _stop_flag(did); ev.clear()
     def job():
         try:
-            downloader.run_device(db, d, REC_ROOT, log=log, dates=dates)
+            downloader.run_device(db, d, REC_ROOT, log=log, dates=dates, should_stop=ev.is_set)
+        except Exception as e:
+            log("loi job tai #%d: %s" % (did, e))
         finally:
             lk.release()
     threading.Thread(target=job, daemon=True).start()
     rng = ("%s đến %s" % (dates[0].strftime("%d/%m/%Y"), dates[-1].strftime("%d/%m/%Y"))) if dates else ("mặc định (%d ngày)" % int(d.get("lookback_days", 1) or 1))
     return jsonify({"ok": True, "msg": "Đã bắt đầu tải: %s" % rng})
+
+@app.route("/api/devices/<int:did>/stop", methods=["POST"])
+def api_stop(did):
+    """Ask the running download job of this device to stop."""
+    if not device_busy(did):
+        return jsonify({"ok": False, "msg": "Thiết bị không có lệnh nào đang chạy."})
+    _stop_flag(did).set()
+    log("yeu cau dung lenh dang chay cua thiet bi #%d" % did)
+    return jsonify({"ok": True, "msg": "Đã gửi yêu cầu dừng. Lệnh sẽ dừng trong vài giây."})
 
 @app.route("/api/devices/<int:did>/test", methods=["POST"])
 def api_test_device(did):

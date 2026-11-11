@@ -61,7 +61,8 @@ async function loadDevices(){
       <td class="num">${d.recordings} file</td>
       <td><span class="num">${fmtTime(d.last_run)}</span><div class="sub">${esc(d.last_status||'Chưa chạy')}</div></td>
       <td><div class="actions">
-        <button class="link" onclick="downloadNow(${d.id})">Tải file</button>
+        ${d.busy ? `<button class="link del" onclick="stopJob(${d.id})">Dừng</button>`
+                 : `<button class="link" onclick="downloadNow(${d.id})">Tải file</button>`}
         <button class="link" onclick="callLog(${d.id})">Nhật ký cuộc gọi</button>
         <button class="link" onclick="editDevice(${d.id})">Sửa</button>
         <button class="link del" onclick="delDevice(${d.id})">Xóa</button>
@@ -69,6 +70,11 @@ async function loadDevices(){
     </tr>`;
   });
   window._devices = devs;
+}
+async function stopJob(id){
+  if(!confirm('Dừng lệnh đang chạy của thiết bị này?')) return;
+  const r = await api(`/api/devices/${id}/stop`,{method:'POST'});
+  alert(r.msg||''); setTimeout(loadDevices, 1500);
 }
 let dlDevice = null;
 function downloadNow(id){                 // open date-range popup
@@ -277,3 +283,5 @@ $('#btn-update').onclick = async ()=>{
 
 loadDevices();
 setInterval(()=>{ if($('#tab-devices').classList.contains('active')) loadDevices(); }, 15000);
+// while a job is running, refresh every 3s so progress ("Đang tải 12/340") stays current
+setInterval(()=>{ if($('#tab-devices').classList.contains('active') && (window._devices||[]).some(d=>d.busy)) loadDevices(); }, 3000);

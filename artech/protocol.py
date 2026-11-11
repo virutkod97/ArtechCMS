@@ -280,80 +280,115 @@ def build_cdr_request(row):
     return bytes(b)
 
 
+STALL = 20.0     # seconds without any transfer progress before a file is abandoned
+
+
+class Cancelled(Exception):
+    """Raised when the user stops a running job."""
+
+
 class FrameConn:
     """Buffered frame reader/writer over a socket."""
     def __init__(self, sock):
         self.s = sock; self.buf = bytearray()
 
     def send(self, cmd, sub, payload=b""):
+        self.s.settimeout(15.0)
         self.s.sendall(frame(cmd, sub, payload))
 
-    def _fill(self, timeout=8.0):
-        self.s.settimeout(timeout)
-        d = self.s.recv(65535)
-        if not d:
-            raise ConnectionError("closed")
-        self.buf += d
+    def _pop(self):
+        """Pop one complete frame from the buffer, or None."""
+        if len(self.buf) >= 2:
+            ln = struct.unpack_from("<H", self.buf, 0)[0]
+            if ln < 2:
+                raise ConnectionError("luong du lieu bi lech (frame len=%d)" % ln)
+            if len(self.buf) >= 2 + ln:
+                body = bytes(self.buf[2:2+ln]); del self.buf[:2+ln]
+                return body[0], body[1], body[2:]
+        return None
 
-    def read_frame(self, timeout=8.0):
-        """Return (cmd, sub, payload) for the next complete frame, or raise on close/timeout."""
+    def read_frame(self, timeout=8.0, deadline=None):
+        """Next complete frame as (cmd, sub, payload).
+        `deadline` (epoch seconds) is a hard limit that heartbeats cannot extend."""
         while True:
-            if len(self.buf) >= 2:
-                ln = struct.unpack_from("<H", self.buf, 0)[0]
-                if len(self.buf) >= 2 + ln:
-                    body = bytes(self.buf[2:2+ln]); del self.buf[:2+ln]
-                    return body[0], body[1], body[2:]
-            self._fill(timeout)
+            f = self._pop()
+            if f:
+                return f
+            wait = timeout
+            if deadline is not None:
+                wait = min(timeout, deadline - time.time())
+                if wait <= 0:
+                    raise TimeoutError("thiet bi khong tra du lieu")
+            self.s.settimeout(max(0.05, wait))
+            try:
+                d = self.s.recv(65535)
+            except socket.timeout:
+                raise TimeoutError("thiet bi khong tra loi")
+            if not d:
+                raise ConnectionError("thiet bi dong ket noi")
+            self.buf += d
 
     def drain(self, idle=0.4, hard=3.0):
-        """Discard any buffered + in-flight bytes until the socket goes quiet.
-        Call between files so one transfer's trailing frames can't leak into the next."""
-        self.buf.clear()
+        """Read until the socket goes quiet, then discard every COMPLETE frame.
+        A partial frame at the tail is kept, so the stream can never lose alignment."""
         self.s.setblocking(False)
         t0 = last = time.time()
         try:
             while True:
                 try:
                     d = self.s.recv(65535)
-                    if d:
-                        last = time.time()
-                    else:
+                    if not d:
                         break
-                except (BlockingIOError, BrokenPipeError, OSError):
+                    self.buf += d; last = time.time()
+                except (BlockingIOError, InterruptedError):
                     now = time.time()
                     if now - last > idle or now - t0 > hard:
                         break
                     time.sleep(0.03)
+                except OSError:
+                    break
         finally:
             try: self.s.setblocking(True)
             except Exception: pass
-        self.buf.clear()
+        while self._pop():
+            pass
 
 
-def download_by_request(conn, request_payload):
+def download_by_request(conn, request_payload, should_stop=None, progress=None, stall=None):
     """
     One file transfer: 0c/06 request -> 0c/0a (size) -> pull 0c/07 chunks -> 0c/08.
-    Sends exactly one chunk request per received chunk (no request-ahead), ignores
-    interleaved heartbeats, and drains trailing frames so the next file starts clean.
+    One chunk request per received chunk, heartbeats ignored. If no size/chunk
+    arrives for `stall` seconds the transfer is abandoned with TimeoutError
+    (heartbeats do not count as progress).
     """
+    stall = STALL if stall is None else stall
     conn.drain()                                           # start clean
     conn.send(0x0c, 0x06, request_payload)
     size = None; data = bytearray(); requested = False
-    for _ in range(500000):
-        # ask for the next chunk only when we still need data and the previous
-        # request has been answered (strict 1 request : 1 chunk)
+    last = time.time()
+    while True:
+        if should_stop and should_stop():
+            raise Cancelled()
         if (size is None or len(data) < size) and not requested:
             conn.send(0x0c, 0x07, bytes.fromhex("00100000"))
             requested = True
-        cmd, sub, pl = conn.read_frame()
+        try:
+            cmd, sub, pl = conn.read_frame(timeout=2.0, deadline=last + stall)
+        except TimeoutError:
+            if time.time() < last + stall:
+                continue                                   # short poll, lets should_stop run
+            raise TimeoutError("qua %ds khong nhan duoc du lieu (da nhan %d/%s bytes)"
+                               % (int(stall), len(data), size if size is not None else "?"))
         if cmd == 0x0c and sub == 0x0a:
             size = struct.unpack_from("<I", pl, 0)[0]
-            requested = False                              # 0c/0a is not a chunk
+            requested = False; last = time.time()          # 0c/0a is not a chunk
             if size == 0:
                 break
         elif cmd == 0x0c and sub == 0x07:
             data += pl[4:]                                 # strip 4-byte chunk prefix
-            requested = False
+            requested = False; last = time.time()
+            if progress:
+                progress(len(data), size)
             if size is not None and len(data) >= size:
                 break
         elif cmd == 0x0c and sub == 0x08:
@@ -364,9 +399,27 @@ def download_by_request(conn, request_payload):
     return bytes(data)
 
 
-def download_file(conn, row, log=lambda *a: None):
+def wav_duration(wav):
+    """Duration in seconds from the WAV header alone (no decoding)."""
+    try:
+        o = 12; fmt = None; dlen = None
+        while o + 8 <= len(wav):
+            cid = wav[o:o+4]; sz = struct.unpack_from("<I", wav, o+4)[0]
+            if cid == b"fmt ": fmt = wav[o+8:o+8+sz]
+            elif cid == b"data": dlen = min(sz, len(wav) - o - 8); break
+            o += 8 + sz + (sz & 1)
+        afmt, ch, sr, br, ba, bps = struct.unpack_from("<HHIIHH", fmt, 0)
+        if afmt == 17 and ba:
+            spb = (ba - 4*ch) * 8 // (4*ch) + 1            # samples per ADPCM block
+            return round((dlen // ba) * spb / sr, 2)
+        return round(dlen / (ch * (bps // 8) * sr), 2)
+    except Exception:
+        return 0.0
+
+
+def download_file(conn, row, log=lambda *a: None, should_stop=None, progress=None):
     """Download one recording. Returns WAV bytes (starts with RIFF) or None."""
-    data = download_by_request(conn, build_cdr_request(row))
+    data = download_by_request(conn, build_cdr_request(row), should_stop=should_stop, progress=progress)
     if data[:4] != b"RIFF":
         log("download_file: khong nhan RIFF cho %s (got %d bytes)" % (row.get("RecFilePath"), len(data)))
         return None
@@ -386,9 +439,9 @@ def build_path_request(remote_path, when=None):
     return bytes(b)
 
 
-def download_path(conn, remote_path, when=None):
+def download_path(conn, remote_path, when=None, should_stop=None):
     """Download an arbitrary file (e.g. the device's daily CDR DB) by path. Raw bytes."""
-    return download_by_request(conn, build_path_request(remote_path, when))
+    return download_by_request(conn, build_path_request(remote_path, when), should_stop=should_stop)
 
 
 def login_and_handshake(device, log=lambda *a: None):
