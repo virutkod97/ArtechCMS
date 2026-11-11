@@ -96,3 +96,4 @@ pre#log-box{margin:0;background:var(--surface);border:1px solid var(--line);bord
   .modal-box .row{flex-direction:column;gap:0}
   .modal-box label.chk{padding-top:0}
 }
+input.date{width:118px;font-variant-numeric:tabular-nums}

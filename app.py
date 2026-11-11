@@ -138,7 +138,7 @@ def api_download_now(did):
         finally:
             lk.release()
     threading.Thread(target=job, daemon=True).start()
-    rng = ("%s..%s" % (df, dt)) if dates else ("mặc định (%d ngày)" % int(d.get("lookback_days", 1) or 1))
+    rng = ("%s đến %s" % (dates[0].strftime("%d/%m/%Y"), dates[-1].strftime("%d/%m/%Y"))) if dates else ("mặc định (%d ngày)" % int(d.get("lookback_days", 1) or 1))
     return jsonify({"ok": True, "msg": "Đã bắt đầu tải: %s" % rng})
 
 @app.route("/api/devices/<int:did>/test", methods=["POST"])

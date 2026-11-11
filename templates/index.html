@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ArtechCMS</title>
-<link rel="stylesheet" href="/static/style.css?v=3">
+<link rel="stylesheet" href="/static/style.css?v=4">
 </head>
 <body>
 <header>
@@ -47,8 +47,8 @@
     <!-- filter bar: nothing loads until "Xem" is pressed -->
     <div class="filterbar">
       <label>Thiết bị <select id="rec-filter"><option value="">Tất cả thiết bị</option></select></label>
-      <label>Từ ngày <input type="date" id="rec-from"></label>
-      <label>Đến ngày <input type="date" id="rec-to"></label>
+      <label>Từ ngày <input type="text" class="date" placeholder="dd/mm/yyyy" inputmode="numeric" maxlength="10" autocomplete="off" id="rec-from"></label>
+      <label>Đến ngày <input type="text" class="date" placeholder="dd/mm/yyyy" inputmode="numeric" maxlength="10" autocomplete="off" id="rec-to"></label>
       <label>Mỗi trang
         <select id="rec-pagesize"><option>50</option><option>100</option><option>200</option></select>
       </label>
@@ -115,8 +115,8 @@
   <div class="modal-box wide">
     <h3 id="cl-title">Nhật ký cuộc gọi</h3>
     <div class="filterbar">
-      <label>Từ ngày <input type="date" id="cl-from"></label>
-      <label>Đến ngày <input type="date" id="cl-to"></label>
+      <label>Từ ngày <input type="text" class="date" placeholder="dd/mm/yyyy" inputmode="numeric" maxlength="10" autocomplete="off" id="cl-from"></label>
+      <label>Đến ngày <input type="text" class="date" placeholder="dd/mm/yyyy" inputmode="numeric" maxlength="10" autocomplete="off" id="cl-to"></label>
       <label class="chk"><input type="checkbox" id="cl-autoplay" checked> Nghe ngay sau khi tải</label>
       <button class="primary" id="cl-load">Lấy nhật ký</button>
       <span id="cl-status" class="muted"></span>
@@ -141,8 +141,8 @@
   <div class="modal-box narrow">
     <h3 id="dl-title">Tải file ghi âm</h3>
     <div class="row">
-      <label>Từ ngày <input type="date" id="dl-from"></label>
-      <label>Đến ngày <input type="date" id="dl-to"></label>
+      <label>Từ ngày <input type="text" class="date" placeholder="dd/mm/yyyy" inputmode="numeric" maxlength="10" autocomplete="off" id="dl-from"></label>
+      <label>Đến ngày <input type="text" class="date" placeholder="dd/mm/yyyy" inputmode="numeric" maxlength="10" autocomplete="off" id="dl-to"></label>
     </div>
     <div class="hint">Tải mọi cuộc gọi trong khoảng ngày đã chọn. File đã tải sẽ được bỏ qua.</div>
     <div class="modal-actions">
@@ -153,6 +153,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=3"></script>
+<script src="/static/app.js?v=4"></script>
 </body>
 </html>

@@ -2,7 +2,34 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const api = (u, opt) => fetch(u, opt).then(r => r.json());
 const fmtBytes = b => b > 1e6 ? (b/1e6).toFixed(1)+' MB' : (b/1e3).toFixed(0)+' KB';
-const fmtTime = t => t ? new Date(t*1000).toLocaleString('vi-VN') : '-';
+const p2 = n => String(n).padStart(2,'0');
+const dmy = d => `${p2(d.getDate())}/${p2(d.getMonth()+1)}/${d.getFullYear()}`;            // Date -> dd/mm/yyyy (local)
+const fmtTime = t => { if(!t) return '-'; const d=new Date(t*1000); return `${dmy(d)} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`; };
+// "2026-11-10 11:41:07" (from server) -> "10/11/2026 11:41:07"
+const fmtCall = s => { const m=/^(\d{4})-(\d{2})-(\d{2})(.*)$/.exec(s||''); return m ? `${m[3]}/${m[2]}/${m[1]}${m[4]}` : (s||'-'); };
+// dd/mm/yyyy text -> yyyy-mm-dd for the API; '' if empty; null if invalid
+function isoDate(str){
+  str=(str||'').trim(); if(!str) return '';
+  const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(str); if(!m) return null;
+  const d=+m[1], mo=+m[2], y=+m[3], dt=new Date(y,mo-1,d);
+  if(dt.getFullYear()!==y||dt.getMonth()!==mo-1||dt.getDate()!==d) return null;
+  return `${y}-${p2(mo)}-${p2(d)}`;
+}
+// read a date box; returns iso string, '' (empty) or null (invalid, already reported)
+function readDate(id, required){
+  const v=isoDate($(id).value);
+  if(v===null || (required && v==='')){ alert('Ngày không hợp lệ. Nhập theo dạng dd/mm/yyyy, ví dụ 05/11/2026.'); $(id).focus(); return null; }
+  return v;
+}
+// auto-insert slashes while typing digits
+document.addEventListener('input', e=>{
+  const el=e.target; if(!el.classList || !el.classList.contains('date')) return;
+  if(e.inputType && e.inputType.startsWith('delete')) return;
+  let v=el.value.replace(/[^\d]/g,'').slice(0,8);
+  if(v.length>4) v=v.slice(0,2)+'/'+v.slice(2,4)+'/'+v.slice(4);
+  else if(v.length>2) v=v.slice(0,2)+'/'+v.slice(2);
+  el.value=v;
+});
 const esc = v => String(v??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtDur = s => { s=Math.round(s||0); return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; };
 
@@ -48,14 +75,14 @@ function downloadNow(id){                 // open date-range popup
   dlDevice = id;
   const dev = (window._devices||[]).find(x=>x.id===id);
   $('#dl-title').textContent = 'Tải file ghi âm: ' + (dev?dev.name:('#'+id));
-  const today = new Date().toISOString().slice(0,10);
+  const today = dmy(new Date());
   $('#dl-from').value = today; $('#dl-to').value = today;
   $('#dl-modal').classList.remove('hidden');
 }
 $('#dl-cancel').onclick = ()=>$('#dl-modal').classList.add('hidden');
 $('#dl-go').onclick = async ()=>{
-  const from=$('#dl-from').value, to=$('#dl-to').value;
-  if(!from||!to){ alert('Chọn khoảng ngày'); return; }
+  const from=readDate('#dl-from',true); if(from===null) return;
+  const to=readDate('#dl-to',true); if(to===null) return;
   $('#dl-modal').classList.add('hidden');
   const r = await api(`/api/devices/${dlDevice}/download`,
     {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from,to})});
@@ -106,7 +133,8 @@ let recPage = 1, recLoaded = false;
 async function loadRecordings(){
   const did = $('#rec-filter').value;
   const ps = $('#rec-pagesize').value;
-  const from = $('#rec-from').value, to = $('#rec-to').value;
+  const from=readDate('#rec-from',false); if(from===null) return;
+  const to=readDate('#rec-to',false); if(to===null) return;
   const qs = new URLSearchParams({page: recPage, page_size: ps});
   if(did) qs.set('device', did);
   if(from) qs.set('from', from);
@@ -127,7 +155,7 @@ async function loadRecordings(){
     const dir = x.direction==='Gọi đi' ? '<span class="dir out">Gọi đi</span>'
               : x.direction==='Gọi đến' ? '<span class="dir in">Gọi đến</span>' : (x.direction||'');
     tb.innerHTML += `<tr>
-      <td class="num">${x.call_time||'-'}</td><td>${dir}</td><td class="num">${esc(x.phone||'-')}</td><td>${esc(x.channel||'-')}</td>
+      <td class="num">${fmtCall(x.call_time)}</td><td>${dir}</td><td class="num">${esc(x.phone||'-')}</td><td>${esc(x.channel||'-')}</td>
       <td>${esc(x.device_name)}</td><td class="num">${fmtDur(x.duration)}</td><td class="num">${fmtBytes(x.bytes)}</td>
       <td><div class="actions"><button class="link" onclick="recPlay(${i})">Nghe</button>
         <a class="link" href="/api/recordings/${x.id}/download">Tải về</a></div></td>
@@ -141,7 +169,7 @@ async function loadRecordings(){
 }
 function recPlay(i){
   const x=(window._recItems||[])[i]; if(!x) return;
-  play(x.id, (x.phone||'')+' · '+(x.call_time||''));
+  play(x.id, (x.phone||'')+' · '+fmtCall(x.call_time));
 }
 function play(id,title){
   $('#player-wrap').style.display='block';
@@ -159,8 +187,8 @@ let clDevice = null;
 function callLog(did){
   clDevice = (window._devices||[]).find(x=>x.id===did);
   $('#cl-title').textContent = 'Nhật ký cuộc gọi: ' + (clDevice?clDevice.name:('#'+did));
-  const today = new Date().toISOString().slice(0,10);
-  const wk = new Date(Date.now()-6*864e5).toISOString().slice(0,10);
+  const today = dmy(new Date());
+  const wk = dmy(new Date(Date.now()-6*864e5));
   $('#cl-from').value = wk; $('#cl-to').value = today;
   $('#cl-status').textContent='';
   $('#cl-player-wrap').style.display='none';
@@ -170,8 +198,8 @@ function callLog(did){
 $('#cl-close').onclick = ()=>{ $('#cl-player').pause(); $('#cl-modal').classList.add('hidden'); };
 $('#cl-load').onclick = async ()=>{
   if(!clDevice) return;
-  const from=$('#cl-from').value, to=$('#cl-to').value;
-  if(!from||!to){ alert('Chọn khoảng ngày'); return; }
+  const from=readDate('#cl-from',true); if(from===null) return;
+  const to=readDate('#cl-to',true); if(to===null) return;
   $('#cl-status').textContent='Đang lấy từ thiết bị...';
   $('#cl-load').disabled=true;
   try{
@@ -192,7 +220,7 @@ function renderCallLog(items){
     if(x.downloaded) act = `<button class="link" onclick="clPlayIdx(${i})">Nghe</button>`;
     else if(x.downloadable) act = `<button id="clbtn${i}" class="link" onclick="clFetch(${i})">Tải về</button>`;
     else act = '<span class="muted">Không có file</span>';
-    h += `<tr><td class="num">${x.call_time||'-'}</td><td>${dir}</td><td class="num">${esc(x.phone||'-')}</td><td>${esc(x.channel||'-')}</td>
+    h += `<tr><td class="num">${fmtCall(x.call_time)}</td><td>${dir}</td><td class="num">${esc(x.phone||'-')}</td><td>${esc(x.channel||'-')}</td>
       <td class="num">${fmtDur(x.rec_time)}</td><td class="num">${fmtBytes(x.filesize)}</td><td>${act}</td></tr>`;
   });
   h += '</tbody></table>';
@@ -209,12 +237,12 @@ async function clFetch(i){
     if(!r.ok){ btn.disabled=false; btn.textContent='Tải về'; alert('Lỗi tải: '+(r.error||'')); return; }
     x.downloaded=true; x.rec_id=r.rec_id;
     btn.outerHTML = `<button class="link" onclick="clPlayIdx(${i})">Nghe</button>`;
-    if($('#cl-autoplay').checked) clPlay(r.rec_id,(x.phone||'')+' · '+(x.call_time||''));
+    if($('#cl-autoplay').checked) clPlay(r.rec_id,(x.phone||'')+' · '+fmtCall(x.call_time));
   } catch(e){ btn.disabled=false; btn.textContent='Tải về'; alert('Lỗi: '+e); }
 }
 function clPlayIdx(i){
   const x=(window._clItems||[])[i]; if(!x||!x.rec_id) return;
-  clPlay(x.rec_id, (x.phone||'')+' · '+(x.call_time||''));
+  clPlay(x.rec_id, (x.phone||'')+' · '+fmtCall(x.call_time));
 }
 function clPlay(rid,title){
   $('#cl-player-wrap').style.display='block';
