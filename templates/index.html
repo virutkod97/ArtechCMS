@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArtechCMS</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">📞 ArtechCMS</div>
+  <nav>
+    <button class="tab active" data-tab="devices">Thiết bị</button>
+    <button class="tab" data-tab="recordings">Ghi âm</button>
+    <button class="tab" data-tab="logs">Log</button>
+  </nav>
+  <div class="spacer"></div>
+  <button id="btn-update" title="Cập nhật từ GitHub">⟳ Update</button>
+</header>
+
+<main>
+  <!-- DEVICES -->
+  <section id="tab-devices" class="tab-panel active">
+    <div class="bar">
+      <h2>Thiết bị Artech</h2>
+      <button class="primary" id="btn-add-device">+ Thêm thiết bị</button>
+    </div>
+    <div id="device-list" class="cards"></div>
+  </section>
+
+  <!-- RECORDINGS -->
+  <section id="tab-recordings" class="tab-panel">
+    <div class="bar">
+      <h2>File ghi âm</h2>
+      <select id="rec-filter"><option value="">Tất cả thiết bị</option></select>
+      <button id="btn-refresh-rec">↻ Tải lại</button>
+      <span id="rec-count" class="muted"></span>
+    </div>
+    <table id="rec-table">
+      <thead><tr><th>Thiết bị</th><th>Index</th><th>File</th><th>Thời lượng</th><th>Dung lượng</th><th>Thời gian</th><th>Nghe</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <audio id="player" controls style="width:100%;margin-top:12px;display:none"></audio>
+  </section>
+
+  <!-- LOGS -->
+  <section id="tab-logs" class="tab-panel">
+    <div class="bar"><h2>Nhật ký</h2><button id="btn-refresh-log">↻</button></div>
+    <pre id="log-box"></pre>
+  </section>
+</main>
+
+<!-- device modal -->
+<div id="modal" class="modal hidden">
+  <div class="modal-box">
+    <h3 id="modal-title">Thiết bị</h3>
+    <input type="hidden" id="f-id">
+    <label>Tên <input id="f-name" placeholder="Artech tầng 1"></label>
+    <div class="row">
+      <label>IP thiết bị <input id="f-host" placeholder="10.43.12.240"></label>
+      <label>Port <input id="f-port" value="6066"></label>
+    </div>
+    <div class="row">
+      <label>User <input id="f-user" value="admin"></label>
+      <label>Password <input id="f-password" value="1111"></label>
+    </div>
+    <label>Version <input id="f-version" value="150116 1.0.0.5"></label>
+    <div class="row">
+      <label>Client IP <input id="f-client_ip" placeholder="IP máy chạy app"></label>
+      <label>MAC <input id="f-mac" placeholder="00-15-5D-04-75-1A"></label>
+    </div>
+    <div class="row">
+      <label>Chu kỳ tải (phút) <input id="f-interval_min" value="15"></label>
+      <label>Số ngày lùi <input id="f-lookback_days" value="1"></label>
+      <label class="chk">Bật <input type="checkbox" id="f-enabled" checked></label>
+    </div>
+    <div class="modal-actions">
+      <button id="btn-test" class="ghost">Test kết nối</button>
+      <span id="test-result" class="muted"></span>
+      <div class="spacer"></div>
+      <button id="btn-cancel" class="ghost">Hủy</button>
+      <button id="btn-save" class="primary">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

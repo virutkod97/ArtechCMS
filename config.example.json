@@ -1,0 +1,5 @@
+{
+  "note": "Cấu hình thiết bị làm trong giao diện web, không cần sửa file này.",
+  "default_port": 6066,
+  "web_port": 8787
+}
