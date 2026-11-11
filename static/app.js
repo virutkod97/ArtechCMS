@@ -43,10 +43,24 @@ async function loadDevices(){
   });
   window._devices = devs;
 }
-async function downloadNow(id){
-  const r = await api(`/api/devices/${id}/download`,{method:'POST'});
-  alert(r.msg||'Đã bắt đầu tải'); setTimeout(loadDevices, 1500);
+let dlDevice = null;
+function downloadNow(id){                 // open date-range popup
+  dlDevice = id;
+  const dev = (window._devices||[]).find(x=>x.id===id);
+  $('#dl-title').textContent = 'Tải file ghi âm — ' + (dev?dev.name:('#'+id));
+  const today = new Date().toISOString().slice(0,10);
+  $('#dl-from').value = today; $('#dl-to').value = today;
+  $('#dl-modal').classList.remove('hidden');
 }
+$('#dl-cancel').onclick = ()=>$('#dl-modal').classList.add('hidden');
+$('#dl-go').onclick = async ()=>{
+  const from=$('#dl-from').value, to=$('#dl-to').value;
+  if(!from||!to){ alert('Chọn khoảng ngày'); return; }
+  $('#dl-modal').classList.add('hidden');
+  const r = await api(`/api/devices/${dlDevice}/download`,
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from,to})});
+  alert(r.msg||'Đã bắt đầu tải'); setTimeout(loadDevices, 1500);
+};
 async function delDevice(id){
   if(!confirm('Xóa thiết bị này? (file đã tải vẫn giữ)')) return;
   await api(`/api/devices/${id}`,{method:'DELETE'}); loadDevices();

@@ -84,13 +84,27 @@ def api_delete_device(did):
 
 @app.route("/api/devices/<int:did>/download", methods=["POST"])
 def api_download_now(did):
+    import datetime
     d = db.get_device(did)
     if not d:
         return jsonify({"error": "not found"}), 404
+    body = request.get_json(silent=True) or {}
+    dates = None
+    df, dt = body.get("from"), body.get("to")
+    if df and dt:
+        try:
+            a = datetime.datetime.strptime(df, "%Y-%m-%d").date()
+            b = datetime.datetime.strptime(dt, "%Y-%m-%d").date()
+            if b < a:
+                a, b = b, a
+            dates = [a + datetime.timedelta(days=i) for i in range((b - a).days + 1)]
+        except Exception:
+            return jsonify({"error": "from/to phai dang YYYY-MM-DD"}), 400
     def job():
-        downloader.run_device(db, d, REC_ROOT, log=log)
+        downloader.run_device(db, d, REC_ROOT, log=log, dates=dates)
     threading.Thread(target=job, daemon=True).start()
-    return jsonify({"ok": True, "msg": "download started"})
+    rng = ("%s..%s" % (df, dt)) if dates else ("mặc định (%d ngày)" % int(d.get("lookback_days", 1) or 1))
+    return jsonify({"ok": True, "msg": "Đã bắt đầu tải: %s" % rng})
 
 @app.route("/api/devices/<int:did>/test", methods=["POST"])
 def api_test_device(did):

@@ -136,6 +136,23 @@
   </div>
 </div>
 
+<!-- download-range popup -->
+<div id="dl-modal" class="modal hidden">
+  <div class="modal-box" style="width:440px">
+    <h3 id="dl-title">Tải file ghi âm</h3>
+    <div class="row">
+      <label>Từ ngày <input type="date" id="dl-from"></label>
+      <label>Đến ngày <input type="date" id="dl-to"></label>
+    </div>
+    <div class="hint" style="margin-bottom:6px">Tải toàn bộ cuộc gọi trong khoảng ngày đã chọn (bỏ qua file đã tải).</div>
+    <div class="modal-actions">
+      <div class="spacer"></div>
+      <button id="dl-cancel" class="ghost">Hủy</button>
+      <button id="dl-go" class="primary">Tải</button>
+    </div>
+  </div>
+</div>
+
 <script src="/static/app.js"></script>
 </body>
 </html>

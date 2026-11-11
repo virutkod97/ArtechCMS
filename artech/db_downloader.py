@@ -137,8 +137,9 @@ def fetch_one(db, device, cdr_row, rec_root, log=lambda *a: None):
     return rid, None
 
 
-def run_device_db(db, device, rec_root, log=lambda *a: None):
-    """Read the device's CDR DBs and download new recordings over 6066."""
+def run_device_db(db, device, rec_root, log=lambda *a: None, dates=None):
+    """Read the device's CDR DBs and download new recordings over 6066.
+    `dates` (list of datetime.date) overrides the default lookback window."""
     did = device["id"]
     folder = device.get("db_folder") or ""
     lookback = int(device.get("lookback_days", 1) or 1)
@@ -157,9 +158,12 @@ def run_device_db(db, device, rec_root, log=lambda *a: None):
         log("%s nguon CDR: thu muc local %s" % (tag, folder))
         rows = list(_rows_from_folder(folder, lambda *a: log(tag, *a)))
     else:
-        log("%s nguon CDR: keo truc tiep tu thiet bi (%d ngay)" % (tag, lookback))
+        if dates is None:
+            today = datetime.date.today()
+            dates = [today - datetime.timedelta(days=i) for i in range(lookback)]
+        log("%s nguon CDR: keo tu thiet bi (%s..%s)" % (tag, min(dates), max(dates)))
         try:
-            rows = list(_rows_from_device(conn, lookback, lambda *a: log(tag, *a)))
+            rows = list(_rows_from_device_dates(conn, dates, lambda *a: log(tag, *a)))
         except Exception as e:
             log("%s keo DB loi: %s" % (tag, e)); rows = []
 
