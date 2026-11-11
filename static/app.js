@@ -123,13 +123,14 @@ async function loadRecordings(){
     return;
   }
   $('#rec-empty').style.display='none';
-  r.items.forEach(x=>{
+  window._recItems = r.items;
+  r.items.forEach((x,i)=>{
     const dir = x.direction==='Gọi đi' ? '<span class="dir out">↗ Gọi đi</span>'
               : x.direction==='Gọi đến' ? '<span class="dir in">↘ Gọi đến</span>' : (x.direction||'');
     tb.innerHTML += `<tr>
       <td>${x.call_time||'-'}</td><td>${dir}</td><td>${x.phone||'-'}</td><td>${x.channel||'-'}</td>
       <td>${x.device_name}</td><td>${fmtDur(x.duration)}</td><td>${fmtBytes(x.bytes)}</td>
-      <td><button class="link" onclick="play(${x.id}, ${JSON.stringify((x.phone||'')+' · '+(x.call_time||''))})">▶ Nghe</button></td>
+      <td><button class="link" onclick="recPlay(${i})">▶ Nghe</button></td>
       <td><a href="/api/recordings/${x.id}/download"><button>⬇</button></a></td>
     </tr>`;
   });
@@ -138,6 +139,10 @@ async function loadRecordings(){
   $('#pg-info').textContent = `Trang ${r.page}/${r.pages}`;
   $('#pg-prev').disabled = r.page<=1;
   $('#pg-next').disabled = r.page>=r.pages;
+}
+function recPlay(i){
+  const x=(window._recItems||[])[i]; if(!x) return;
+  play(x.id, (x.phone||'')+' · '+(x.call_time||''));
 }
 function play(id,title){
   $('#player-wrap').style.display='block';
@@ -185,8 +190,8 @@ function renderCallLog(items){
     const dir = x.direction==='Gọi đi' ? '<span class="dir out">↗ Gọi đi</span>'
               : x.direction==='Gọi đến' ? '<span class="dir in">↘ Gọi đến</span>' : (x.direction||'');
     let act;
-    if(x.downloaded) act = `<button class="link" onclick="clPlay(${x.rec_id}, ${JSON.stringify((x.phone||'')+' · '+(x.call_time||''))})">▶ Nghe</button>`;
-    else if(x.downloadable) act = `<button id="clbtn${i}" onclick='clFetch(${i})'>⬇ Tải & nghe</button>`;
+    if(x.downloaded) act = `<button class="link" onclick="clPlayIdx(${i})">▶ Nghe</button>`;
+    else if(x.downloadable) act = `<button id="clbtn${i}" onclick="clFetch(${i})">⬇ Tải & nghe</button>`;
     else act = '<span class="muted">—</span>';
     h += `<tr><td>${x.call_time||'-'}</td><td>${dir}</td><td>${x.phone||'-'}</td><td>${x.channel||'-'}</td>
       <td>${fmtDur(x.rec_time)}</td><td>${fmtBytes(x.filesize)}</td><td>${act}</td></tr>`;
@@ -204,9 +209,13 @@ async function clFetch(i){
       {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cdr:x.cdr})});
     if(!r.ok){ btn.disabled=false; btn.textContent='⬇ Tải & nghe'; alert('Lỗi tải: '+(r.error||'')); return; }
     x.downloaded=true; x.rec_id=r.rec_id;
-    btn.outerHTML = `<button class="link" onclick="clPlay(${r.rec_id}, ${JSON.stringify((x.phone||'')+' · '+(x.call_time||''))})">▶ Nghe</button>`;
+    btn.outerHTML = `<button class="link" onclick="clPlayIdx(${i})">▶ Nghe</button>`;
     if($('#cl-autoplay').checked) clPlay(r.rec_id,(x.phone||'')+' · '+(x.call_time||''));
   } catch(e){ btn.disabled=false; btn.textContent='⬇ Tải & nghe'; alert('Lỗi: '+e); }
+}
+function clPlayIdx(i){
+  const x=(window._clItems||[])[i]; if(!x||!x.rec_id) return;
+  clPlay(x.rec_id, (x.phone||'')+' · '+(x.call_time||''));
 }
 function clPlay(rid,title){
   $('#cl-player-wrap').style.display='block';
