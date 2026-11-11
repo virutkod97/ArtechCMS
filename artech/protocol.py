@@ -380,37 +380,50 @@ def login_probe(device, log=lambda *a: None):
             return {"ok": False, "stage": "no_reply", "bytes": 0,
                     "msg": "Ket noi duoc nhung thiet bi khong tra loi login"}
 
-        head = reply[:4]
-        log("%s nhan %d bytes, header=%s" % (tag, len(reply), head.hex()))
+        log("%s nhan %d bytes, header=%s" % (tag, len(reply), reply[:4].hex()))
         log("%s reply hex: %s" % (tag, _hex(reply, 80)))
 
-        # 4) interpret
-        if head == bytes.fromhex("62000102"):
-            # pull any readable UTF-16LE username echoed back
+        # 4) parse ALL frames and look for the login result (01/02 OK, 01/05 busy).
+        #    The device interleaves heartbeat (15/00) and info frames in any order.
+        seen = []
+        buf = reply; off = 0
+        login_frame = None
+        while off + 2 <= len(buf):
+            ln = struct.unpack_from("<H", buf, off)[0]
+            if ln < 2 or off + 2 + ln > len(buf):
+                break
+            cmd, sub = buf[off+2], buf[off+3]
+            seen.append("%02x/%02x" % (cmd, sub))
+            if cmd == 0x01 and sub in (0x02, 0x05):
+                login_frame = (cmd, sub, bytes(buf[off+4:off+2+ln])); break
+            off += 2 + ln
+        log("%s frames: %s" % (tag, " ".join(seen[:12]) + (" ..." if len(seen) > 12 else "")))
+
+        if login_frame and login_frame[1] == 0x02:
+            pl = login_frame[2]
             try:
-                name = reply[4:24].decode("utf-16-le", "ignore").split("\x00")[0]
+                name = pl[:20].decode("utf-16-le", "ignore").split("\x00")[0]
             except Exception:
                 name = ""
             log("%s LOGIN OK (echo user=%r)" % (tag, name))
             return {"ok": True, "stage": "ok", "bytes": len(reply),
-                    "reply_hex": head.hex(), "msg": "Login OK" + (" (user=%s)" % name if name else "")}
-
-        # login reply but not sub=02 (success). sub=05 = rejected/busy (connection limit).
-        info = ""
-        if len(reply) >= 4:
-            ln = struct.unpack_from("<H", reply, 0)[0]
-            info = " (frame len=%d cmd=%02x sub=%02x)" % (ln, reply[2], reply[3])
-        if head[:3] == bytes.fromhex("620001") and reply[3] == 0x05:
+                    "msg": "Login OK" + (" (user=%s)" % name if name else "")}
+        if login_frame and login_frame[1] == 0x05:
             log("%s LOGIN BI TU CHOI (01/05) - thiet bi da du so ket noi cho phep" % tag)
-            log("%s -> dong phan mem goc (PhoneRec) va cac client khac dang noi toi thiet bi, doi ~30s roi thu lai" % tag)
+            log("%s -> dong PhoneRec va client khac, doi ~30s roi thu lai" % tag)
             return {"ok": False, "stage": "busy", "bytes": len(reply),
-                    "reply_hex": _hex(reply, 40),
                     "msg": "Thiet bi tu choi dang nhap (dang co phien khac). Dong PhoneRec/client khac, doi ~30s roi Test lai."}
-        log("%s LOGIN BI TU CHOI/khac thuong: header=%s%s" % (tag, head.hex(), info))
-        log("%s -> thuong do sai user/pass, hoac thieu client_ip/mac/version dung" % tag)
+        if seen and all(f.startswith("15/") or f.startswith("09/") or f.startswith("08/") for f in seen):
+            # only heartbeat/status seen and no explicit 01/02 — device is streaming, treat as logged-in
+            log("%s nhan heartbeat/status (chua thay 01/02 ro rang) - coi nhu da dang nhap" % tag)
+            return {"ok": True, "stage": "ok_heartbeat", "bytes": len(reply),
+                    "msg": "Ket noi OK (thiet bi dang day du lieu status)"}
+
+        # frames received but no 01/02 and not pure heartbeat
+        log("%s khong thay frame login 01/02 trong phan hoi" % tag)
         return {"ok": False, "stage": "bad_reply", "bytes": len(reply),
-                "reply_hex": _hex(reply, 40),
-                "msg": "Thiet bi tra loi khac thuong (header %s)%s - xem tab Log" % (head.hex(), info)}
+                "msg": "Thiet bi tra loi nhung khong co frame login 01/02 (frames: %s) - xem tab Log"
+                       % " ".join(seen[:8])}
     finally:
         try: s.close()
         except Exception: pass
