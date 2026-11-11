@@ -68,6 +68,19 @@ class DB:
         rcols = {r["name"] for r in self.c.execute("PRAGMA table_info(recordings)")}
         if "remote_path" not in rcols:
             self.c.execute("ALTER TABLE recordings ADD COLUMN remote_path TEXT DEFAULT ''")
+        if "call_ts" not in rcols:
+            self.c.execute("ALTER TABLE recordings ADD COLUMN call_ts INTEGER DEFAULT 0")
+            self.c.commit()
+            self._backfill_call_ts()
+        self.c.commit()
+
+    def _backfill_call_ts(self):
+        from . import protocol
+        rows = self.c.execute("SELECT id, filename FROM recordings WHERE call_ts=0 OR call_ts IS NULL").fetchall()
+        for r in rows:
+            ts = protocol.parse_recording_name(r["filename"]).get("call_ts", 0)
+            if ts:
+                self.c.execute("UPDATE recordings SET call_ts=? WHERE id=?", (ts, r["id"]))
         self.c.commit()
 
     # ---- settings
@@ -147,12 +160,16 @@ class DB:
                            (did, idx)).fetchone()
         return r is not None
 
+    def _call_ts(self, filename):
+        from . import protocol
+        return protocol.parse_recording_name(filename).get("call_ts", 0)
+
     def add_recording(self, did, idx, filename, path, nbytes, duration):
         with _LOCK:
             try:
-                self.c.execute("""INSERT INTO recordings(device_id,cdr_index,filename,path,bytes,duration,created)
-                    VALUES(?,?,?,?,?,?,?)""",
-                    (did, idx, filename, path, nbytes, duration, int(time.time())))
+                self.c.execute("""INSERT INTO recordings(device_id,cdr_index,filename,path,bytes,duration,created,call_ts)
+                    VALUES(?,?,?,?,?,?,?,?)""",
+                    (did, idx, filename, path, nbytes, duration, int(time.time()), self._call_ts(filename)))
                 self.c.commit(); return True
             except sqlite3.IntegrityError:
                 return False
@@ -165,19 +182,31 @@ class DB:
 
     def add_recording_ftp(self, did, remote_path, filename, path, nbytes, duration):
         with _LOCK:
-            self.c.execute("""INSERT INTO recordings(device_id,cdr_index,remote_path,filename,path,bytes,duration,created)
-                VALUES(?,?,?,?,?,?,?,?)""",
-                (did, None, remote_path, filename, path, nbytes, duration, int(time.time())))
+            self.c.execute("""INSERT INTO recordings(device_id,cdr_index,remote_path,filename,path,bytes,duration,created,call_ts)
+                VALUES(?,?,?,?,?,?,?,?,?)""",
+                (did, None, remote_path, filename, path, nbytes, duration, int(time.time()), self._call_ts(filename)))
             self.c.commit(); return True
 
-    def list_recordings(self, did=None, limit=500, offset=0):
-        q = "SELECT r.*, d.name AS device_name FROM recordings r JOIN devices d ON d.id=r.device_id"
-        args = []
+    def _rec_where(self, did, ts_from, ts_to):
+        where = []; args = []
         if did:
-            q += " WHERE r.device_id=?"; args.append(did)
-        q += " ORDER BY r.created DESC, r.id DESC LIMIT ? OFFSET ?"
-        args += [limit, offset]
-        return [dict(r) for r in self.c.execute(q, args).fetchall()]
+            where.append("r.device_id=?"); args.append(did)
+        if ts_from:
+            where.append("r.call_ts>=?"); args.append(int(ts_from))
+        if ts_to:
+            where.append("r.call_ts<?"); args.append(int(ts_to))
+        return (" WHERE " + " AND ".join(where)) if where else "", args
+
+    def list_recordings(self, did=None, limit=50, offset=0, ts_from=None, ts_to=None):
+        w, args = self._rec_where(did, ts_from, ts_to)
+        q = ("SELECT r.*, d.name AS device_name FROM recordings r "
+             "JOIN devices d ON d.id=r.device_id" + w +
+             " ORDER BY r.call_ts DESC, r.id DESC LIMIT ? OFFSET ?")
+        return [dict(r) for r in self.c.execute(q, args + [limit, offset]).fetchall()]
+
+    def count_recordings_filtered(self, did=None, ts_from=None, ts_to=None):
+        w, args = self._rec_where(did, ts_from, ts_to)
+        return self.c.execute("SELECT COUNT(*) FROM recordings r" + w, args).fetchone()[0]
 
     def get_recording(self, rid):
         r = self.c.execute("SELECT * FROM recordings WHERE id=?", (rid,)).fetchone()

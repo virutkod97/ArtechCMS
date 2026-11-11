@@ -11,9 +11,10 @@ $$('.tab').forEach(t => t.onclick = () => {
   $$('.tab-panel').forEach(x=>x.classList.remove('active'));
   t.classList.add('active');
   $('#tab-'+t.dataset.tab).classList.add('active');
-  if(t.dataset.tab==='recordings') loadRecordings();
   if(t.dataset.tab==='logs') loadLogs();
+  // recordings tab: do NOT auto-load — user must pick a filter and press Xem
 });
+function gotoTab(name){ const b=[...$$('.tab')].find(x=>x.dataset.tab===name); if(b) b.click(); }
 
 // ---------------- devices
 async function loadDevices(){
@@ -34,6 +35,7 @@ async function loadDevices(){
       <div class="status">${d.last_status||'chưa chạy'}</div>
       <div class="card-actions">
         <button class="primary" onclick="downloadNow(${d.id})">⬇ Tải ngay</button>
+        <button onclick="callLog(${d.id})">📋 Nhật ký cuộc gọi</button>
         <button onclick="editDevice(${d.id})">Sửa</button>
         <button class="danger" onclick="delDevice(${d.id})">Xóa</button>
       </div>
@@ -95,26 +97,59 @@ $('#btn-test').onclick = async ()=>{
   $('#test-result').textContent = (r.ok?'✓ ':'✗ ')+(r.msg||'')+(r.ok?'':' — xem tab Log');
 };
 
-// ---------------- recordings
+// ---------------- recordings (call log) — nothing loads until user presses "Xem"
+let recPage = 1, recLoaded = false;
 async function loadRecordings(){
   const did = $('#rec-filter').value;
-  const r = await api('/api/recordings'+(did?`?device=${did}`:''));
-  $('#rec-count').textContent = `${r.total} file`;
+  const ps = $('#rec-pagesize').value;
+  const from = $('#rec-from').value, to = $('#rec-to').value;
+  const qs = new URLSearchParams({page: recPage, page_size: ps});
+  if(did) qs.set('device', did);
+  if(from) qs.set('from', from);
+  if(to) qs.set('to', to);
+  const r = await api('/api/recordings?'+qs.toString());
+  recLoaded = true;
+  $('#rec-count').textContent = `${r.total} cuộc gọi`;
   const tb = $('#rec-table tbody'); tb.innerHTML='';
+  if(!r.items.length){
+    $('#rec-table').style.display='none'; $('#pager').style.display='none';
+    $('#rec-empty').style.display='block';
+    $('#rec-empty').textContent = 'Không có cuộc gọi nào khớp bộ lọc.';
+    return;
+  }
+  $('#rec-empty').style.display='none';
   r.items.forEach(x=>{
+    const dir = x.direction==='Gọi đi' ? '<span class="dir out">↗ Gọi đi</span>'
+              : x.direction==='Gọi đến' ? '<span class="dir in">↘ Gọi đến</span>' : (x.direction||'');
     tb.innerHTML += `<tr>
-      <td>${x.device_name}</td><td>${x.cdr_index??'-'}</td><td>${x.filename}</td>
-      <td>${fmtDur(x.duration)}</td><td>${fmtBytes(x.bytes)}</td><td>${fmtTime(x.created)}</td>
-      <td><button class="link" onclick="play(${x.id})">▶ Nghe</button></td>
+      <td>${x.call_time||'-'}</td><td>${dir}</td><td>${x.phone||'-'}</td><td>${x.channel||'-'}</td>
+      <td>${x.device_name}</td><td>${fmtDur(x.duration)}</td><td>${fmtBytes(x.bytes)}</td>
+      <td><button class="link" onclick="play(${x.id}, ${JSON.stringify((x.phone||'')+' · '+(x.call_time||''))})">▶ Nghe</button></td>
       <td><a href="/api/recordings/${x.id}/download"><button>⬇</button></a></td>
     </tr>`;
   });
+  $('#rec-table').style.display='';
+  $('#pager').style.display = r.pages>1 ? 'flex' : 'none';
+  $('#pg-info').textContent = `Trang ${r.page}/${r.pages}`;
+  $('#pg-prev').disabled = r.page<=1;
+  $('#pg-next').disabled = r.page>=r.pages;
 }
-function play(id){
-  const p=$('#player'); p.style.display='block'; p.src='/api/recordings/'+id+'/play'; p.play();
+function play(id,title){
+  $('#player-wrap').style.display='block';
+  $('#player-title').textContent = title||'';
+  const p=$('#player'); p.src='/api/recordings/'+id+'/play'; p.play();
+  $('#player-wrap').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
-$('#rec-filter').onchange = loadRecordings;
-$('#btn-refresh-rec').onclick = loadRecordings;
+function applyFilter(){ recPage=1; loadRecordings(); }
+$('#btn-apply-filter').onclick = applyFilter;
+$('#rec-pagesize').onchange = ()=>{ if(recLoaded) applyFilter(); };
+$('#pg-prev').onclick = ()=>{ if(recPage>1){recPage--; loadRecordings();} };
+$('#pg-next').onclick = ()=>{ recPage++; loadRecordings(); };
+function callLog(did){            // from a device card -> its call log
+  gotoTab('recordings');
+  $('#rec-filter').value = String(did);
+  applyFilter();
+}
 
 // ---------------- logs + update
 async function loadLogs(){ const l=await api('/api/logs'); $('#log-box').textContent=l.join('\n'); $('#log-box').scrollTop=1e9; }

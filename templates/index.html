@@ -30,17 +30,43 @@
 
   <!-- RECORDINGS -->
   <section id="tab-recordings" class="tab-panel">
-    <div class="bar">
-      <h2>File ghi âm</h2>
-      <select id="rec-filter"><option value="">Tất cả thiết bị</option></select>
-      <button id="btn-refresh-rec">↻ Tải lại</button>
+    <h2>Nhật ký cuộc gọi</h2>
+
+    <!-- media player at TOP -->
+    <div id="player-wrap" style="display:none">
+      <div id="player-title" class="muted" style="margin-bottom:4px"></div>
+      <audio id="player" controls style="width:100%"></audio>
+    </div>
+
+    <!-- filter bar: nothing loads until "Xem" is pressed -->
+    <div class="filterbar">
+      <label>Thiết bị <select id="rec-filter"><option value="">Tất cả thiết bị</option></select></label>
+      <label>Từ ngày <input type="date" id="rec-from"></label>
+      <label>Đến ngày <input type="date" id="rec-to"></label>
+      <label>Mỗi trang
+        <select id="rec-pagesize"><option>50</option><option>100</option><option>200</option></select>
+      </label>
+      <button class="primary" id="btn-apply-filter">Xem</button>
       <span id="rec-count" class="muted"></span>
     </div>
-    <table id="rec-table">
-      <thead><tr><th>Thiết bị</th><th>Index</th><th>File</th><th>Thời lượng</th><th>Dung lượng</th><th>Thời gian</th><th>Nghe</th><th></th></tr></thead>
+
+    <div id="rec-empty" class="muted" style="padding:30px;text-align:center">
+      Chọn bộ lọc (thiết bị / khoảng ngày) rồi bấm <b>Xem</b> để tải danh sách.
+    </div>
+
+    <table id="rec-table" style="display:none">
+      <thead><tr>
+        <th>Thời điểm gọi</th><th>Hướng</th><th>Số điện thoại</th><th>Kênh</th>
+        <th>Thiết bị</th><th>Thời lượng</th><th>Dung lượng</th><th>Nghe</th><th></th>
+      </tr></thead>
       <tbody></tbody>
     </table>
-    <audio id="player" controls style="width:100%;margin-top:12px;display:none"></audio>
+
+    <div id="pager" class="pager" style="display:none">
+      <button id="pg-prev">‹ Trước</button>
+      <span id="pg-info" class="muted"></span>
+      <button id="pg-next">Sau ›</button>
+    </div>
   </section>
 
   <!-- LOGS -->

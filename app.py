@@ -128,11 +128,26 @@ def api_test_device(did):
 # ------------------------------------------------------------------ recordings API
 @app.route("/api/recordings")
 def api_recordings():
+    import datetime
     did = request.args.get("device", type=int)
-    limit = request.args.get("limit", 500, type=int)
-    offset = request.args.get("offset", 0, type=int)
-    recs = db.list_recordings(did, limit, offset)
-    return jsonify({"total": db.count_recordings(did), "items": recs})
+    page = max(1, request.args.get("page", 1, type=int))
+    page_size = min(200, request.args.get("page_size", 50, type=int))
+    df = request.args.get("from")   # YYYY-MM-DD (call date, inclusive)
+    dt = request.args.get("to")     # YYYY-MM-DD (call date, inclusive)
+    ts_from = ts_to = None
+    try:
+        if df:
+            ts_from = int(datetime.datetime.strptime(df, "%Y-%m-%d").timestamp())
+        if dt:
+            ts_to = int((datetime.datetime.strptime(dt, "%Y-%m-%d") + datetime.timedelta(days=1)).timestamp())
+    except Exception:
+        pass
+    total = db.count_recordings_filtered(did, ts_from, ts_to)
+    recs = db.list_recordings(did, page_size, (page - 1) * page_size, ts_from, ts_to)
+    for r in recs:
+        r.update(protocol.parse_recording_name(r["filename"]))
+    return jsonify({"total": total, "page": page, "page_size": page_size,
+                    "pages": (total + page_size - 1) // page_size, "items": recs})
 
 @app.route("/api/recordings/<int:rid>/play")
 def api_play(rid):

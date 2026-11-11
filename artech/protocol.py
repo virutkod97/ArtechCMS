@@ -207,6 +207,32 @@ def _hex(b, n=64):
 
 
 # ---------------------------------------------------------------- frame I/O + file download (via CDR DB)
+def parse_recording_name(name):
+    """
+    Parse an Artech recording filename to call metadata.
+    Format: <YYYYMMDDHHMMSS>-<O|I>-L<nn>-EN-<phone>.wav
+    Returns dict: call_time (ISO), call_ts (epoch int), direction, channel, phone.
+    """
+    import datetime
+    base = name[:-4] if name.lower().endswith(".wav") else name
+    parts = base.split("-")
+    out = {"call_time": "", "call_ts": 0, "direction": "", "channel": "", "phone": ""}
+    if parts and len(parts[0]) >= 14 and parts[0][:14].isdigit():
+        try:
+            dt = datetime.datetime.strptime(parts[0][:14], "%Y%m%d%H%M%S")
+            out["call_time"] = dt.strftime("%Y-%m-%d %H:%M:%S")
+            out["call_ts"] = int(dt.timestamp())
+        except Exception:
+            pass
+    if len(parts) > 1:
+        out["direction"] = {"O": "Gọi đi", "I": "Gọi đến"}.get(parts[1], parts[1])
+    if len(parts) > 2:
+        out["channel"] = parts[2]
+    if len(parts) > 4:
+        out["phone"] = "-".join(parts[4:]) or ""
+    return out
+
+
 def frame(cmd, sub, payload=b""):
     """Build a wire frame: u16 length (= 2 + len(payload)) + cmd + sub + payload."""
     body = bytes([cmd, sub]) + payload
