@@ -461,6 +461,8 @@ def login_and_handshake(device, log=lambda *a: None):
         if cmd == 0x01 and sub == 0x02:
             log("login OK")
             return conn
+        if cmd == 0x01 and sub == 0x04:
+            raise ConnectionError("login that bai (01/04) - sai tai khoan hoac mat khau")
         if cmd == 0x01 and sub == 0x05:
             raise ConnectionError("login bi tu choi (01/05) - thiet bi da du ket noi; "
                                   "dong PhoneRec/client khac roi thu lai")
@@ -521,7 +523,7 @@ def login_probe(device, log=lambda *a: None):
                 break
             cmd, sub = buf[off+2], buf[off+3]
             seen.append("%02x/%02x" % (cmd, sub))
-            if cmd == 0x01 and sub in (0x02, 0x05):
+            if cmd == 0x01 and sub in (0x02, 0x04, 0x05):
                 login_frame = (cmd, sub, bytes(buf[off+4:off+2+ln])); break
             off += 2 + ln
         log("%s frames: %s" % (tag, " ".join(seen[:12]) + (" ..." if len(seen) > 12 else "")))
@@ -535,6 +537,10 @@ def login_probe(device, log=lambda *a: None):
             log("%s LOGIN OK (echo user=%r)" % (tag, name))
             return {"ok": True, "stage": "ok", "bytes": len(reply),
                     "msg": "Login OK" + (" (user=%s)" % name if name else "")}
+        if login_frame and login_frame[1] == 0x04:
+            log("%s LOGIN THAT BAI (01/04) - sai tai khoan hoac mat khau" % tag)
+            return {"ok": False, "stage": "auth", "bytes": len(reply),
+                    "msg": "Sai tài khoản hoặc mật khẩu."}
         if login_frame and login_frame[1] == 0x05:
             log("%s LOGIN BI TU CHOI (01/05) - thiet bi da du so ket noi cho phep" % tag)
             log("%s -> dong PhoneRec va client khac, doi ~30s roi thu lai" % tag)
