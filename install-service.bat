@@ -1,5 +1,5 @@
 @echo off
-REM ===== ArtechCMS - cai dat chay nen dang Windows Service (1-click) =====
+REM ===== ArtechCMS - cai dat chay nen tu dong (1-click) =====
 REM Chuot phai -> "Run as administrator"
 setlocal
 cd /d "%~dp0"
@@ -13,7 +13,7 @@ if errorlevel 1 (
 )
 
 echo ============================================
-echo   ArtechCMS - cai dat Windows Service
+echo   ArtechCMS - cai dat chay nen tu dong
 echo ============================================
 
 REM 1) Python launcher
@@ -26,7 +26,7 @@ if not defined PYEXE (
   exit /b 1
 )
 
-REM 2) venv + thu vien (bao gom pywin32)
+REM 2) venv + thu vien
 if not exist ".venv" (
   echo [*] Tao moi truong ao .venv ...
   %PYEXE% -m venv .venv
@@ -34,18 +34,28 @@ if not exist ".venv" (
 call .venv\Scripts\activate.bat
 echo [*] Cai thu vien ...
 python -m pip install --upgrade pip >nul
-python -m pip install -r requirements.txt pywin32
-REM dang ky DLL cua pywin32 (can cho service)
-python .venv\Scripts\pywin32_postinstall.py -install >nul 2>&1
+python -m pip install -r requirements.txt
 
-REM 3) cai + chay service (tu khoi dong cung Windows)
-echo [*] Cai dat dich vu ...
-python service.py --startup auto install
-python service.py restart
+REM 3) don dep dich vu pywin32 cu (neu da cai ban truoc)
+echo [*] Don dep ban cu (neu co) ...
+sc stop ArtechCMS >nul 2>&1
+python service.py remove >nul 2>&1
+sc delete ArtechCMS >nul 2>&1
+schtasks /Delete /TN ArtechCMS /F >nul 2>&1
+
+REM 4) tao tac vu chay luc khoi dong (tai khoan SYSTEM, chay an) + chay ngay
+echo [*] Tao tac vu tu dong chay ...
+schtasks /Create /TN ArtechCMS /TR "\"%CD%\run-background.bat\"" /SC ONSTART /RU SYSTEM /RL HIGHEST /F
+if errorlevel 1 (
+  echo [!] Tao tac vu that bai. Hay chac chan dang chay bang quyen Administrator.
+  pause
+  exit /b 1
+)
+schtasks /Run /TN ArtechCMS
 
 echo.
-echo [*] Xong. Dich vu "ArtechCMS" dang chay nen va tu bat khi khoi dong Windows.
-echo     Mo trinh duyet: http://localhost:8787
-echo     Quan ly: services.msc  (ten: ArtechCMS)
+echo [*] Xong. ArtechCMS dang chay nen va tu bat khi khoi dong Windows.
+echo     Mo trinh duyet: http://localhost:8787  (doi vai giay cho lan dau)
+echo     Quan ly: Task Scheduler -^> ten "ArtechCMS"
 echo     Go cai: uninstall-service.bat
 pause

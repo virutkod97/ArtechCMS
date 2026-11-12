@@ -13,20 +13,22 @@ Phần mềm web quản lý **nhiều máy ghi âm Artech** (dòng AJ/AK/AQ, gia
 - **Cập nhật online** từ GitHub (nút ⟳ Update) hoặc `update.bat`.
 - **1-click deploy** trên Windows.
 
-## Chạy nền dạng Windows Service (khuyến nghị)
+## Chạy nền tự động cùng Windows (khuyến nghị)
 
-Để ArtechCMS tự chạy nền và bật cùng Windows, không cần mở cửa sổ:
+Cho ArtechCMS chạy nền và tự bật khi mở máy, không cần mở cửa sổ hay đăng nhập:
 
 1. Cài **Python 3.9+** (tick *Add to PATH*).
 2. Lấy source (`git clone https://github.com/virutkod97/ArtechCMS`), vào thư mục.
+   Nên đặt ngoài `C:\Program Files` (ví dụ `C:\ArtechCMS`) để tự cập nhật không vướng quyền.
 3. Chuột phải **`install-service.bat`** -> **Run as administrator**.
-4. Mở trình duyệt: **http://localhost:8787**
+4. Mở trình duyệt: **http://localhost:8787** (đợi vài giây lần đầu).
 
-Dịch vụ tên **ArtechCMS** (xem trong `services.msc`), tự khởi động cùng máy và
-tự chạy lại sau khi bấm Cập nhật. Gỡ: chạy **`uninstall-service.bat`** (quyền
-Administrator) — dữ liệu trong `data\` và `recordings\` vẫn được giữ.
+Chạy nền qua **Task Scheduler** (tác vụ tên **ArtechCMS**, tài khoản SYSTEM, chạy
+lúc khởi động). Không dùng pywin32-service vì kém ổn định với Python mới. Tự chạy
+lại sau khi bấm Cập nhật. Gỡ: **`uninstall-service.bat`** (quyền Administrator) —
+dữ liệu `data\` và `recordings\` vẫn giữ.
 
-> Cần chạy dạng cửa sổ (không phải service)? Dùng `deploy_windows.bat` như dưới.
+> Muốn chạy dạng cửa sổ (xem log trực tiếp)? Dùng `deploy_windows.bat`.
 
 ## Cài đặt nhanh (Windows)
 1. Cài **Python 3.9+** (nhớ tick *Add to PATH*) và **Git** (để update online).
