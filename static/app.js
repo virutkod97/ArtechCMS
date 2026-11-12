@@ -33,6 +33,20 @@ document.addEventListener('input', e=>{
 const esc = v => String(v??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtDur = s => { s=Math.round(s||0); return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; };
 
+// ---------------- current user / permissions
+window._me = null;
+const canManage = () => !!(window._me && (window._me.is_admin || window._me.can_manage));
+const isAdmin = () => !!(window._me && window._me.is_admin);
+async function loadMe(){
+  const r = await fetch('/api/me');
+  if(r.status === 401){ location.href = '/login'; return false; }
+  window._me = await r.json();
+  $('#me').textContent = (window._me.full_name || window._me.username) + (window._me.is_admin ? ' · Quản trị' : '');
+  $$('.admin-only').forEach(e => e.style.display = isAdmin() ? '' : 'none');
+  $('#btn-add-device').style.display = canManage() ? '' : 'none';
+  return true;
+}
+
 // tabs
 $$('.tab').forEach(t => t.onclick = () => {
   $$('.tab').forEach(x=>x.classList.remove('active'));
@@ -40,6 +54,7 @@ $$('.tab').forEach(t => t.onclick = () => {
   t.classList.add('active');
   $('#tab-'+t.dataset.tab).classList.add('active');
   if(t.dataset.tab==='logs') loadLogs();
+  if(t.dataset.tab==='system') loadUsers();
   // recordings tab: do NOT auto-load — user must pick a filter and press Xem
 });
 function gotoTab(name){ const b=[...$$('.tab')].find(x=>x.dataset.tab===name); if(b) b.click(); }
@@ -64,8 +79,8 @@ async function loadDevices(){
         ${d.busy ? `<button class="link del" onclick="stopJob(${d.id})">Dừng</button>`
                  : `<button class="link" onclick="downloadNow(${d.id})">Tải file</button>`}
         <button class="link" onclick="callLog(${d.id})">Nhật ký cuộc gọi</button>
-        <button class="link" onclick="editDevice(${d.id})">Sửa</button>
-        <button class="link del" onclick="delDevice(${d.id})">Xóa</button>
+        ${canManage() ? `<button class="link" onclick="editDevice(${d.id})">Sửa</button>
+        <button class="link del" onclick="delDevice(${d.id})">Xóa</button>` : ''}
       </div></td>
     </tr>`;
   });
@@ -281,7 +296,82 @@ $('#btn-update').onclick = async ()=>{
   alert((r.ok?'Đã cập nhật, đang khởi động lại...\n\n':'Lỗi:\n')+(r.output||''));
 };
 
-loadDevices();
-setInterval(()=>{ if($('#tab-devices').classList.contains('active')) loadDevices(); }, 15000);
-// while a job is running, refresh every 3s so progress ("Đang tải 12/340") stays current
-setInterval(()=>{ if($('#tab-devices').classList.contains('active') && (window._devices||[]).some(d=>d.busy)) loadDevices(); }, 3000);
+// ---------------- user management (admin)
+async function loadUsers(){
+  if(!isAdmin()) return;
+  const users = await api('/api/users');
+  const devs = window._devices || [];
+  const dname = id => (devs.find(d=>d.id===id)||{}).name || ('#'+id);
+  const tb = $('#user-list'); tb.innerHTML='';
+  users.forEach(u=>{
+    const role = u.is_admin ? 'Quản trị' : (u.can_manage ? 'Quản lý thiết bị' : 'Chỉ xem');
+    const scope = u.is_admin || u.all_devices ? 'Tất cả'
+                : (u.device_ids.length ? u.device_ids.map(dname).map(esc).join(', ') : 'Chưa gán');
+    tb.innerHTML += `<tr>
+      <td><b>${esc(u.username)}</b></td><td>${esc(u.full_name||'')}</td>
+      <td>${role}</td><td class="sub">${scope}</td>
+      <td><div class="actions">
+        <button class="link" onclick="editUser(${u.id})">Sửa</button>
+        ${u.id===window._me.id ? '' : `<button class="link del" onclick="delUser(${u.id})">Xóa</button>`}
+      </div></td></tr>`;
+  });
+}
+function applyUserPerms(){
+  $('#u-perms').style.display = $('#u-admin').checked ? 'none' : '';
+  $('#u-devwrap').style.display = $('#u-all').checked ? 'none' : '';
+}
+function openUser(u){
+  u = u||{};
+  $('#user-modal-title').textContent = u.id ? 'Sửa người dùng' : 'Thêm người dùng';
+  $('#u-id').value = u.id||''; $('#u-username').value = u.username||'';
+  $('#u-fullname').value = u.full_name||''; $('#u-password').value='';
+  $('#u-password').placeholder = u.id ? 'để trống = giữ nguyên' : 'nhập mật khẩu';
+  $('#u-admin').checked = !!u.is_admin; $('#u-manage').checked = !!u.can_manage; $('#u-all').checked = !!u.all_devices;
+  const chosen = new Set(u.device_ids||[]);
+  $('#u-devices').innerHTML = (window._devices||[]).map(d =>
+    `<label class="chk"><input type="checkbox" value="${d.id}" ${chosen.has(d.id)?'checked':''}> ${esc(d.name)}</label>`
+  ).join('') || '<span class="sub">Chưa có thiết bị nào.</span>';
+  $('#u-msg').textContent=''; applyUserPerms();
+  $('#user-modal').classList.remove('hidden');
+}
+function editUser(id){ api('/api/users').then(us=>openUser(us.find(x=>x.id===id))); }
+async function delUser(id){
+  if(!confirm('Xóa người dùng này?')) return;
+  const r = await api(`/api/users/${id}`,{method:'DELETE'});
+  if(r.error) alert(r.error); loadUsers();
+}
+$('#btn-add-user').onclick = ()=>openUser({});
+$('#u-cancel').onclick = ()=>$('#user-modal').classList.add('hidden');
+$('#u-admin').onchange = applyUserPerms; $('#u-all').onchange = applyUserPerms;
+$('#u-save').onclick = async ()=>{
+  const id = $('#u-id').value;
+  const body = {
+    username: $('#u-username').value.trim(), full_name: $('#u-fullname').value.trim(),
+    is_admin: $('#u-admin').checked, can_manage: $('#u-manage').checked, all_devices: $('#u-all').checked,
+    device_ids: $$('#u-devices input:checked').map(e=>+e.value),
+  };
+  const pw = $('#u-password').value; if(pw) body.password = pw;
+  if(!id && !pw){ $('#u-msg').textContent='Nhập mật khẩu.'; return; }
+  if(!body.username){ $('#u-msg').textContent='Nhập tài khoản.'; return; }
+  const r = id ? await api(`/api/users/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+               : await api('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r.error){ $('#u-msg').textContent=r.error; return; }
+  $('#user-modal').classList.add('hidden'); loadUsers();
+};
+$('#btn-change-pw').onclick = async ()=>{
+  const old=$('#pw-old').value, nw=$('#pw-new').value;
+  if(!old||!nw){ $('#pw-msg').textContent='Nhập đủ hai ô.'; return; }
+  const r = await api('/api/me/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old,new:nw})});
+  $('#pw-msg').textContent = r.ok ? 'Đã đổi mật khẩu.' : (r.error||'Lỗi');
+  $('#pw-msg').style.color = r.ok ? 'var(--ok)' : 'var(--danger)';
+  if(r.ok){ $('#pw-old').value=''; $('#pw-new').value=''; }
+};
+
+// ---------------- boot
+(async ()=>{
+  if(!await loadMe()) return;
+  loadDevices();
+  setInterval(()=>{ if($('#tab-devices').classList.contains('active')) loadDevices(); }, 15000);
+  // while a job is running, refresh every 3s so progress ("Đang tải 12/340") stays current
+  setInterval(()=>{ if($('#tab-devices').classList.contains('active') && (window._devices||[]).some(d=>d.busy)) loadDevices(); }, 3000);
+})();

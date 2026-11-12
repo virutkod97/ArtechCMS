@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ArtechCMS</title>
-<link rel="stylesheet" href="/static/style.css?v=6">
+<link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body>
 <header>
@@ -13,9 +13,11 @@
     <button class="tab active" data-tab="devices">Thiết bị</button>
     <button class="tab" data-tab="recordings">Ghi âm</button>
     <button class="tab" data-tab="logs">Nhật ký hệ thống</button>
+    <button class="tab admin-only" data-tab="system" style="display:none">Hệ thống</button>
   </nav>
   <div class="spacer"></div>
-  <button id="btn-update" class="ghost" title="Cập nhật từ GitHub">Cập nhật</button>
+  <span id="me" class="sub"></span>
+  <a class="link" href="/logout">Đăng xuất</a>
 </header>
 
 <main>
@@ -78,6 +80,34 @@
   <section id="tab-logs" class="tab-panel">
     <div class="bar"><h2>Nhật ký hệ thống</h2><span class="sub">Tự cập nhật mỗi 2 giây</span><div class="spacer"></div><button id="btn-refresh-log">Làm mới</button></div>
     <pre id="log-box"></pre>
+  </section>
+
+  <!-- SYSTEM (admin) -->
+  <section id="tab-system" class="tab-panel">
+    <div class="bar"><h2>Cập nhật phần mềm</h2></div>
+    <div class="card-box">
+      <p class="sub" style="margin:0 0 12px">Tải bản mới nhất từ GitHub và khởi động lại. Dữ liệu và cấu hình được giữ nguyên.</p>
+      <button class="primary" id="btn-update">Cập nhật phần mềm</button>
+    </div>
+
+    <div class="bar" style="margin-top:28px"><h2>Người dùng</h2><div class="spacer"></div>
+      <button class="primary" id="btn-add-user">Thêm người dùng</button></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Tài khoản</th><th>Tên</th><th>Quyền</th><th>Thiết bị</th><th></th></tr></thead>
+        <tbody id="user-list"></tbody>
+      </table>
+    </div>
+
+    <div class="bar" style="margin-top:28px"><h2>Đổi mật khẩu của tôi</h2></div>
+    <div class="card-box">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+        <label style="font-size:12.5px;color:var(--muted)">Mật khẩu hiện tại<br><input type="password" id="pw-old" autocomplete="current-password"></label>
+        <label style="font-size:12.5px;color:var(--muted)">Mật khẩu mới<br><input type="password" id="pw-new" autocomplete="new-password"></label>
+        <button id="btn-change-pw">Đổi</button>
+        <span id="pw-msg" class="sub"></span>
+      </div>
+    </div>
   </section>
 </main>
 
@@ -153,7 +183,35 @@
   </div>
 </div>
 
-<script src="/static/datepicker.js?v=6"></script>
-<script src="/static/app.js?v=6"></script>
+<!-- user modal -->
+<div id="user-modal" class="modal hidden">
+  <div class="modal-box">
+    <h3 id="user-modal-title">Người dùng</h3>
+    <input type="hidden" id="u-id">
+    <div class="row">
+      <label>Tài khoản <input id="u-username" autocomplete="off"></label>
+      <label>Tên hiển thị <input id="u-fullname"></label>
+    </div>
+    <label>Mật khẩu <input id="u-password" type="password" autocomplete="new-password" placeholder="để trống = giữ nguyên"></label>
+    <label class="chk"><input type="checkbox" id="u-admin"> Quản trị viên (toàn quyền)</label>
+    <div id="u-perms">
+      <label class="chk"><input type="checkbox" id="u-manage"> Được thêm / sửa / xóa thiết bị</label>
+      <label class="chk"><input type="checkbox" id="u-all"> Xem được tất cả thiết bị</label>
+      <div id="u-devwrap">
+        <div class="sub" style="margin:6px 0 4px">Thiết bị được phép (khi không chọn "tất cả"):</div>
+        <div id="u-devices" class="checklist"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <span id="u-msg" class="sub" style="color:var(--danger)"></span>
+      <div class="spacer"></div>
+      <button id="u-cancel" class="ghost">Hủy</button>
+      <button id="u-save" class="primary">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/datepicker.js?v=7"></script>
+<script src="/static/app.js?v=7"></script>
 </body>
 </html>

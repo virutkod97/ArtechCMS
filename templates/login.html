@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đăng nhập — ArtechCMS</title>
+<link rel="stylesheet" href="/static/style.css?v=7">
+<style>
+  body{display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .login{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:28px 26px;width:340px;max-width:92vw;box-shadow:0 10px 30px rgba(0,0,0,.08)}
+  .login h1{font-size:18px;margin:0 0 4px}
+  .login p{margin:0 0 18px;color:var(--muted);font-size:13px}
+  .login label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:12px}
+  .login input{width:100%;margin-top:4px;padding:8px 10px}
+  .login button{width:100%;margin-top:6px;padding:9px}
+  .err{color:var(--danger);font-size:13px;margin-bottom:12px}
+</style>
+</head>
+<body>
+  <form class="login" method="post" action="/login{{ '?next=' + request.args.get('next') if request.args.get('next') else '' }}">
+    <h1>ArtechCMS</h1>
+    <p>Đăng nhập để tiếp tục</p>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    <label>Tài khoản <input name="username" autofocus autocomplete="username"></label>
+    <label>Mật khẩu <input name="password" type="password" autocomplete="current-password"></label>
+    <button class="primary" type="submit">Đăng nhập</button>
+  </form>
+</body>
+</html>

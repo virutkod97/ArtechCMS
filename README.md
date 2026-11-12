@@ -91,3 +91,10 @@ file zip → tự tải `main.zip` từ GitHub và ghi đè code (giữ nguyên 
 
 ## License
 Nội bộ EVNNPC. Dùng cho thiết bị do bạn sở hữu/quản trị.
+
+## Đăng nhập & phân quyền
+
+Lần đầu mở sẽ có sẵn tài khoản quản trị **admin / admin** — đăng nhập xong hãy đổi
+mật khẩu ngay (tab **Hệ thống** → Đổi mật khẩu). Tab **Hệ thống** (chỉ quản trị)
+dùng để: cập nhật phần mềm, tạo người dùng, phân quyền theo từng thiết bị và quyền
+thêm/sửa/xóa thiết bị.

@@ -48,6 +48,21 @@ class DB:
             UNIQUE(device_id, cdr_index)
         );
         CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT);
+        CREATE TABLE IF NOT EXISTS users(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            pw_hash TEXT NOT NULL,
+            full_name TEXT DEFAULT '',
+            is_admin INTEGER DEFAULT 0,
+            can_manage INTEGER DEFAULT 0,
+            all_devices INTEGER DEFAULT 0,
+            created INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS user_devices(
+            user_id INTEGER NOT NULL,
+            device_id INTEGER NOT NULL,
+            UNIQUE(user_id, device_id)
+        );
         """)
         self.c.commit()
         self._migrate()
@@ -187,25 +202,31 @@ class DB:
                 (did, None, remote_path, filename, path, nbytes, duration, int(time.time()), self._call_ts(filename)))
             self.c.commit(); return True
 
-    def _rec_where(self, did, ts_from, ts_to):
+    def _rec_where(self, did, ts_from, ts_to, allowed_ids=None):
         where = []; args = []
         if did:
             where.append("r.device_id=?"); args.append(did)
+        if allowed_ids is not None:
+            if not allowed_ids:
+                where.append("0"); 
+            else:
+                where.append("r.device_id IN (%s)" % ",".join("?" * len(allowed_ids)))
+                args += [int(x) for x in allowed_ids]
         if ts_from:
             where.append("r.call_ts>=?"); args.append(int(ts_from))
         if ts_to:
             where.append("r.call_ts<?"); args.append(int(ts_to))
         return (" WHERE " + " AND ".join(where)) if where else "", args
 
-    def list_recordings(self, did=None, limit=50, offset=0, ts_from=None, ts_to=None):
-        w, args = self._rec_where(did, ts_from, ts_to)
+    def list_recordings(self, did=None, limit=50, offset=0, ts_from=None, ts_to=None, allowed_ids=None):
+        w, args = self._rec_where(did, ts_from, ts_to, allowed_ids)
         q = ("SELECT r.*, d.name AS device_name FROM recordings r "
              "JOIN devices d ON d.id=r.device_id" + w +
              " ORDER BY r.call_ts DESC, r.id DESC LIMIT ? OFFSET ?")
         return [dict(r) for r in self.c.execute(q, args + [limit, offset]).fetchall()]
 
-    def count_recordings_filtered(self, did=None, ts_from=None, ts_to=None):
-        w, args = self._rec_where(did, ts_from, ts_to)
+    def count_recordings_filtered(self, did=None, ts_from=None, ts_to=None, allowed_ids=None):
+        w, args = self._rec_where(did, ts_from, ts_to, allowed_ids)
         return self.c.execute("SELECT COUNT(*) FROM recordings r" + w, args).fetchone()[0]
 
     def get_recording(self, rid):
@@ -216,3 +237,63 @@ class DB:
         if did:
             return self.c.execute("SELECT COUNT(*) FROM recordings WHERE device_id=?", (did,)).fetchone()[0]
         return self.c.execute("SELECT COUNT(*) FROM recordings").fetchone()[0]
+
+    # ---------------------------------------------------------------- users
+    def count_users(self):
+        return self.c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+
+    def list_users(self):
+        out=[]
+        for u in self.c.execute("SELECT * FROM users ORDER BY id"):
+            d=dict(u); d.pop("pw_hash",None)
+            d["device_ids"]=self.user_device_ids(d["id"])
+            out.append(d)
+        return out
+
+    def get_user(self, uid):
+        r=self.c.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+        return dict(r) if r else None
+
+    def get_user_by_name(self, name):
+        r=self.c.execute("SELECT * FROM users WHERE username=?", (name,)).fetchone()
+        return dict(r) if r else None
+
+    def create_user(self, username, pw_hash, full_name="", is_admin=0, can_manage=0, all_devices=0, device_ids=None):
+        with _LOCK:
+            cur=self.c.execute("""INSERT INTO users(username,pw_hash,full_name,is_admin,can_manage,all_devices,created)
+                VALUES(?,?,?,?,?,?,?)""",(username,pw_hash,full_name,int(is_admin),int(can_manage),int(all_devices),int(time.time())))
+            uid=cur.lastrowid; self.c.commit()
+        self.set_user_devices(uid, device_ids or [])
+        return uid
+
+    def update_user(self, uid, fields):
+        cols=["username","pw_hash","full_name","is_admin","can_manage","all_devices"]
+        sets=", ".join("%s=?"%c for c in cols if c in fields)
+        vals=[fields[c] for c in cols if c in fields]
+        with _LOCK:
+            if sets:
+                self.c.execute("UPDATE users SET %s WHERE id=?"%sets, vals+[uid]); self.c.commit()
+        if "device_ids" in fields:
+            self.set_user_devices(uid, fields["device_ids"] or [])
+
+    def delete_user(self, uid):
+        with _LOCK:
+            self.c.execute("DELETE FROM users WHERE id=?", (uid,))
+            self.c.execute("DELETE FROM user_devices WHERE user_id=?", (uid,))
+            self.c.commit()
+
+    def user_device_ids(self, uid):
+        return [r[0] for r in self.c.execute("SELECT device_id FROM user_devices WHERE user_id=?", (uid,))]
+
+    def set_user_devices(self, uid, device_ids):
+        with _LOCK:
+            self.c.execute("DELETE FROM user_devices WHERE user_id=?", (uid,))
+            for d in device_ids:
+                try: self.c.execute("INSERT INTO user_devices(user_id,device_id) VALUES(?,?)", (uid,int(d)))
+                except Exception: pass
+            self.c.commit()
+
+    def user_can_access(self, user, device_id):
+        if not user: return False
+        if user.get("is_admin") or user.get("all_devices"): return True
+        return int(device_id) in set(self.user_device_ids(user["id"]))

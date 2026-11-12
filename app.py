@@ -5,7 +5,9 @@ Flask app: multi-device management, scheduled auto-download, browser playback.
 """
 import os, io, json, time, threading, subprocess, sys
 from flask import (Flask, request, jsonify, send_file, Response,
-                   render_template, abort)
+                   render_template, abort, session, redirect, url_for)
+from functools import wraps
+from werkzeug.security import generate_password_hash, check_password_hash
 from artech.db import DB
 from artech import protocol, downloader
 
@@ -20,6 +22,71 @@ os.makedirs(REC_ROOT, exist_ok=True)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 db = DB(DB_PATH)
+
+# ------------------------------------------------------------------ auth / users
+def _session_secret():
+    sk = db.get_setting("session_secret")
+    if not sk:
+        sk = os.urandom(24).hex(); db.set_setting("session_secret", sk)
+    return sk
+
+app.secret_key = _session_secret()
+app.config.update(PERMANENT_SESSION_LIFETIME=7*24*3600)
+
+if db.count_users() == 0:                       # first run: default admin
+    db.create_user("admin", generate_password_hash("admin"), full_name="",
+                   is_admin=1, can_manage=1, all_devices=1)
+
+def current_user():
+    uid = session.get("uid")
+    return db.get_user(uid) if uid else None
+
+OPEN_PATHS = ("/login", "/logout", "/static/", "/favicon.ico")
+
+@app.before_request
+def _guard():
+    path = request.path
+    if any(path == p or path.startswith(p) for p in OPEN_PATHS):
+        return
+    if not current_user():
+        if path.startswith("/api/"):
+            return jsonify({"error": "unauthorized", "login": True}), 401
+        return redirect(url_for("login", next=path))
+
+def login_required(fn):
+    @wraps(fn)
+    def w(*a, **k):
+        if not current_user():
+            return jsonify({"error": "unauthorized"}), 401
+        return fn(*a, **k)
+    return w
+
+def admin_required(fn):
+    @wraps(fn)
+    def w(*a, **k):
+        u = current_user()
+        if not u or not u.get("is_admin"):
+            return jsonify({"error": "Chỉ quản trị viên được phép."}), 403
+        return fn(*a, **k)
+    return w
+
+def require_device(did):
+    """abort 403 if the current user can't access this device."""
+    if not db.user_can_access(current_user(), did):
+        abort(403, "Không có quyền với thiết bị này.")
+
+def require_manage():
+    u = current_user()
+    if not (u and (u.get("is_admin") or u.get("can_manage"))):
+        abort(403, "Không có quyền thêm/sửa/xóa thiết bị.")
+
+@app.errorhandler(403)
+@app.errorhandler(404)
+def _api_err(e):
+    if request.path.startswith("/api/"):
+        return jsonify({"error": getattr(e, "description", str(e))}), e.code
+    return e
+
 
 _log_lines = []
 def log(*a):
@@ -92,38 +159,153 @@ def index():
     return render_template("index.html", repo=GITHUB_REPO)
 
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        name = (request.form.get("username") or "").strip()
+        pw = request.form.get("password") or ""
+        u = db.get_user_by_name(name)
+        if u and check_password_hash(u["pw_hash"], pw):
+            session.permanent = True; session["uid"] = u["id"]
+            nxt = request.args.get("next") or "/"
+            if not nxt.startswith("/"): nxt = "/"
+            return redirect(nxt)
+        return render_template("login.html", error="Sai tài khoản hoặc mật khẩu."), 401
+    if current_user():
+        return redirect("/")
+    return render_template("login.html", error="")
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+@app.route("/api/me")
+def api_me():
+    u = current_user()
+    if not u:
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify({"id": u["id"], "username": u["username"], "full_name": u.get("full_name", ""),
+                    "is_admin": bool(u["is_admin"]), "can_manage": bool(u["can_manage"]),
+                    "all_devices": bool(u["all_devices"])})
+
+@app.route("/api/me/password", methods=["POST"])
+def api_change_password():
+    u = current_user()
+    b = request.get_json(force=True)
+    if not check_password_hash(u["pw_hash"], b.get("old") or ""):
+        return jsonify({"error": "Mật khẩu hiện tại không đúng."}), 400
+    if len(b.get("new") or "") < 4:
+        return jsonify({"error": "Mật khẩu mới tối thiểu 4 ký tự."}), 400
+    db.update_user(u["id"], {"pw_hash": generate_password_hash(b["new"])})
+    return jsonify({"ok": True})
+
+# ---- user management (admin only)
+@app.route("/api/users", methods=["GET"])
+@admin_required
+def api_users():
+    return jsonify(db.list_users())
+
+@app.route("/api/users", methods=["POST"])
+@admin_required
+def api_add_user():
+    b = request.get_json(force=True)
+    name = (b.get("username") or "").strip()
+    if not name or not (b.get("password") or ""):
+        return jsonify({"error": "Thiếu tên đăng nhập hoặc mật khẩu."}), 400
+    if db.get_user_by_name(name):
+        return jsonify({"error": "Tên đăng nhập đã tồn tại."}), 400
+    uid = db.create_user(name, generate_password_hash(b["password"]), full_name=b.get("full_name", ""),
+                         is_admin=int(bool(b.get("is_admin"))), can_manage=int(bool(b.get("can_manage"))),
+                         all_devices=int(bool(b.get("all_devices"))), device_ids=b.get("device_ids") or [])
+    return jsonify({"id": uid})
+
+@app.route("/api/users/<int:uid>", methods=["PUT"])
+@admin_required
+def api_update_user(uid):
+    b = request.get_json(force=True)
+    target = db.get_user(uid)
+    if not target:
+        return jsonify({"error": "not found"}), 404
+    fields = {}
+    for k in ("full_name", "is_admin", "can_manage", "all_devices"):
+        if k in b: fields[k] = int(bool(b[k])) if k != "full_name" else b[k]
+    if b.get("username"):
+        other = db.get_user_by_name(b["username"].strip())
+        if other and other["id"] != uid:
+            return jsonify({"error": "Tên đăng nhập đã tồn tại."}), 400
+        fields["username"] = b["username"].strip()
+    if b.get("password"):
+        fields["pw_hash"] = generate_password_hash(b["password"])
+    if "device_ids" in b:
+        fields["device_ids"] = b["device_ids"] or []
+    # never let the last admin lose admin
+    if target["is_admin"] and fields.get("is_admin") == 0:
+        admins = [x for x in db.list_users() if x["is_admin"]]
+        if len(admins) <= 1:
+            return jsonify({"error": "Phải còn ít nhất một quản trị viên."}), 400
+    db.update_user(uid, fields)
+    return jsonify({"ok": True})
+
+@app.route("/api/users/<int:uid>", methods=["DELETE"])
+@admin_required
+def api_delete_user(uid):
+    u = current_user()
+    if uid == u["id"]:
+        return jsonify({"error": "Không thể tự xóa tài khoản đang đăng nhập."}), 400
+    target = db.get_user(uid)
+    if target and target["is_admin"]:
+        admins = [x for x in db.list_users() if x["is_admin"]]
+        if len(admins) <= 1:
+            return jsonify({"error": "Phải còn ít nhất một quản trị viên."}), 400
+    db.delete_user(uid)
+    return jsonify({"ok": True})
+
+
 # ------------------------------------------------------------------ device API
 @app.route("/api/devices", methods=["GET"])
 def api_devices():
+    u = current_user()
     devs = db.list_devices()
+    out = []
     for d in devs:
+        if not db.user_can_access(u, d["id"]):
+            continue
         d.pop("password", None)
         d.pop("ftp_pass", None)
         d["recordings"] = db.count_recordings(d["id"])
         d["busy"] = device_busy(d["id"])
-    return jsonify(devs)
+        out.append(d)
+    return jsonify(out)
 
 @app.route("/api/devices", methods=["POST"])
 def api_add_device():
+    require_manage()
     d = request.get_json(force=True)
     if not d.get("name") or not d.get("host"):
         return jsonify({"error": "name and host required"}), 400
     did = db.add_device(d)
+    u = current_user()
+    if u and not u.get("is_admin") and not u.get("all_devices"):
+        db.set_user_devices(u["id"], db.user_device_ids(u["id"]) + [did])   # creator keeps access
     return jsonify({"id": did})
 
 @app.route("/api/devices/<int:did>", methods=["PUT"])
 def api_update_device(did):
+    require_manage(); require_device(did)
     db.update_device(did, request.get_json(force=True))
     return jsonify({"ok": True})
 
 @app.route("/api/devices/<int:did>", methods=["DELETE"])
 def api_delete_device(did):
+    require_manage(); require_device(did)
     db.delete_device(did)
     return jsonify({"ok": True})
 
 @app.route("/api/devices/<int:did>/download", methods=["POST"])
 def api_download_now(did):
     import datetime
+    require_device(did)
     d = db.get_device(did)
     if not d:
         return jsonify({"error": "not found"}), 404
@@ -158,6 +340,7 @@ def api_download_now(did):
 @app.route("/api/devices/<int:did>/stop", methods=["POST"])
 def api_stop(did):
     """Ask the running download job of this device to stop."""
+    require_device(did)
     if not device_busy(did):
         return jsonify({"ok": False, "msg": "Thiết bị không có lệnh nào đang chạy."})
     _stop_flag(did).set()
@@ -166,6 +349,7 @@ def api_stop(did):
 
 @app.route("/api/devices/<int:did>/test", methods=["POST"])
 def api_test_device(did):
+    require_device(did)
     d = db.get_device(did)
     if not d:
         return jsonify({"error": "not found"}), 404
@@ -197,6 +381,7 @@ CDR_FIELDS = ["AutoID", "RecFilePath", "RecType", "RecChannel", "RingTime",
 def api_calllog(did):
     """Pull the device's call log (CDR) for a date range, live from the device."""
     import datetime
+    require_device(did)
     from artech import db_downloader
     d = db.get_device(did)
     if not d:
@@ -239,6 +424,7 @@ def api_calllog(did):
 @app.route("/api/devices/<int:did>/fetch", methods=["POST"])
 def api_fetch_one(did):
     """Download one recording (by its CDR row) on demand; store + return rec_id."""
+    require_device(did)
     from artech import db_downloader
     d = db.get_device(did)
     if not d:
@@ -273,8 +459,14 @@ def api_recordings():
             ts_to = int((datetime.datetime.strptime(dt, "%Y-%m-%d") + datetime.timedelta(days=1)).timestamp())
     except Exception:
         pass
-    total = db.count_recordings_filtered(did, ts_from, ts_to)
-    recs = db.list_recordings(did, page_size, (page - 1) * page_size, ts_from, ts_to)
+    u = current_user()
+    allowed = None
+    if not (u.get("is_admin") or u.get("all_devices")):
+        allowed = db.user_device_ids(u["id"])
+    if did is not None:
+        require_device(did)
+    total = db.count_recordings_filtered(did, ts_from, ts_to, allowed)
+    recs = db.list_recordings(did, page_size, (page - 1) * page_size, ts_from, ts_to, allowed)
     for r in recs:
         r.update(protocol.parse_recording_name(r["filename"]))
     return jsonify({"total": total, "page": page, "page_size": page_size,
@@ -286,6 +478,7 @@ def api_play(rid):
     r = db.get_recording(rid)
     if not r or not os.path.exists(r["path"]):
         abort(404)
+    require_device(r["device_id"])
     raw = open(r["path"], "rb").read()
     try:
         ch, sr, pcm = protocol.ima_adpcm_to_pcm16(raw)
@@ -299,6 +492,7 @@ def api_rec_download(rid):
     r = db.get_recording(rid)
     if not r or not os.path.exists(r["path"]):
         abort(404)
+    require_device(r["device_id"])
     return send_file(r["path"], as_attachment=True, download_name=r["filename"])
 
 
@@ -365,6 +559,7 @@ def _update_via_zip():
     return "Da tai ban moi tu GitHub (%d file). Khoi dong lai..." % copied
 
 @app.route("/api/update", methods=["POST"])
+@admin_required
 def api_update():
     """Update from GitHub: git pull if it's a git clone, else download the zip."""
     is_git = os.path.isdir(os.path.join(BASE, ".git"))
