@@ -13,6 +13,21 @@ Phần mềm web quản lý **nhiều máy ghi âm Artech** (dòng AJ/AK/AQ, gia
 - **Cập nhật online** từ GitHub (nút ⟳ Update) hoặc `update.bat`.
 - **1-click deploy** trên Windows.
 
+## Chạy nền dạng Windows Service (khuyến nghị)
+
+Để ArtechCMS tự chạy nền và bật cùng Windows, không cần mở cửa sổ:
+
+1. Cài **Python 3.9+** (tick *Add to PATH*).
+2. Lấy source (`git clone https://github.com/virutkod97/ArtechCMS`), vào thư mục.
+3. Chuột phải **`install-service.bat`** -> **Run as administrator**.
+4. Mở trình duyệt: **http://localhost:8787**
+
+Dịch vụ tên **ArtechCMS** (xem trong `services.msc`), tự khởi động cùng máy và
+tự chạy lại sau khi bấm Cập nhật. Gỡ: chạy **`uninstall-service.bat`** (quyền
+Administrator) — dữ liệu trong `data\` và `recordings\` vẫn được giữ.
+
+> Cần chạy dạng cửa sổ (không phải service)? Dùng `deploy_windows.bat` như dưới.
+
 ## Cài đặt nhanh (Windows)
 1. Cài **Python 3.9+** (nhớ tick *Add to PATH*) và **Git** (để update online).
 2. Lấy source:
