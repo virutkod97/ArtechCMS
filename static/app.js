@@ -322,6 +322,7 @@ $('#btn-cleanup-now').onclick = async ()=>{
 async function loadUsers(){
   if(!isAdmin()) return;
   const users = await api('/api/users');
+  if(!Array.isArray(users)) return;
   const devs = window._devices || [];
   const dname = id => (devs.find(d=>d.id===id)||{}).name || ('#'+id);
   const tb = $('#user-list'); tb.innerHTML='';
