@@ -123,6 +123,33 @@ def _stop_flag(did):
         return ev
 
 
+# ------------------------------------------------------------------ retention cleanup
+def cleanup_recordings():
+    """Delete recordings older than the configured retention (in days). 0 = keep forever.
+    Returns (deleted_count, freed_bytes)."""
+    days = int(db.get_setting("retention_days", 0) or 0)
+    if days <= 0:
+        return 0, 0
+    cutoff = int(time.time()) - days * 86400
+    deleted = 0; freed = 0
+    for r in db.expired_recordings(cutoff):
+        p = r.get("path")
+        try:
+            if p and os.path.exists(p):
+                freed += os.path.getsize(p)
+                os.remove(p)
+        except Exception as e:
+            log("xoa file loi %s: %s" % (p, e))
+            continue
+        db.delete_recording(r["id"])
+        deleted += 1
+    if deleted:
+        log("don file qua han: xoa %d file (giu %d ngay), giai phong %.1f MB"
+            % (deleted, days, freed / 1048576.0))
+    db.set_setting("last_cleanup", int(time.time()))
+    return deleted, freed
+
+
 # ------------------------------------------------------------------ scheduler
 _sched_stop = threading.Event()
 
@@ -131,6 +158,13 @@ def scheduler_loop():
     while not _sched_stop.is_set():
         try:
             now = int(time.time())
+            # daily retention cleanup
+            if now - int(db.get_setting("last_cleanup", 0) or 0) >= 86400:
+                db.set_setting("last_cleanup", now)      # mark before running (avoid tight retry on error)
+                try:
+                    cleanup_recordings()
+                except Exception as e:
+                    log("cleanup error: %s" % e)
             for d in db.list_devices():
                 if not d["enabled"]:
                     continue
@@ -199,6 +233,35 @@ def api_change_password():
         return jsonify({"error": "Mật khẩu mới tối thiểu 4 ký tự."}), 400
     db.update_user(u["id"], {"pw_hash": generate_password_hash(b["new"])})
     return jsonify({"ok": True})
+
+# ---- settings: retention (admin only)
+@app.route("/api/settings", methods=["GET"])
+@admin_required
+def api_get_settings():
+    return jsonify({"retention_days": int(db.get_setting("retention_days", 0) or 0),
+                    "last_cleanup": int(db.get_setting("last_cleanup", 0) or 0)})
+
+@app.route("/api/settings", methods=["POST"])
+@admin_required
+def api_set_settings():
+    b = request.get_json(force=True)
+    if "retention_days" in b:
+        try:
+            n = max(0, int(b["retention_days"]))
+        except Exception:
+            return jsonify({"error": "Số ngày không hợp lệ."}), 400
+        db.set_setting("retention_days", n)
+    return jsonify({"ok": True})
+
+@app.route("/api/cleanup", methods=["POST"])
+@admin_required
+def api_cleanup_now():
+    deleted, freed = cleanup_recordings()
+    days = int(db.get_setting("retention_days", 0) or 0)
+    if days <= 0:
+        return jsonify({"ok": True, "deleted": 0, "msg": "Chưa đặt thời gian lưu (giữ vĩnh viễn)."})
+    return jsonify({"ok": True, "deleted": deleted,
+                    "msg": "Đã xóa %d file quá %d ngày (giải phóng %.1f MB)." % (deleted, days, freed / 1048576.0)})
 
 # ---- user management (admin only)
 @app.route("/api/users", methods=["GET"])

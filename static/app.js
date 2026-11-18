@@ -54,7 +54,7 @@ $$('.tab').forEach(t => t.onclick = () => {
   t.classList.add('active');
   $('#tab-'+t.dataset.tab).classList.add('active');
   if(t.dataset.tab==='logs') loadLogs();
-  if(t.dataset.tab==='system') loadUsers();
+  if(t.dataset.tab==='system'){ loadUsers(); loadSettings(); }
   // recordings tab: do NOT auto-load — user must pick a filter and press Xem
 });
 function gotoTab(name){ const b=[...$$('.tab')].find(x=>x.dataset.tab===name); if(b) b.click(); }
@@ -295,6 +295,27 @@ $('#btn-update').onclick = async ()=>{
   if(!confirm('Cập nhật từ GitHub và khởi động lại?')) return;
   const r = await api('/api/update',{method:'POST'});
   alert((r.ok?'Đã cập nhật, đang khởi động lại...\n\n':'Lỗi:\n')+(r.output||''));
+};
+
+// ---------------- retention settings (admin)
+async function loadSettings(){
+  if(!isAdmin()) return;
+  const s = await api('/api/settings');
+  $('#s-retention').value = s.retention_days;
+  $('#last-cleanup').textContent = s.last_cleanup ? ('Lần dọn gần nhất: ' + fmtTime(s.last_cleanup)) : 'Chưa dọn lần nào.';
+}
+$('#btn-save-retention').onclick = async ()=>{
+  const n = parseInt($('#s-retention').value||'0',10);
+  const r = await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({retention_days:n})});
+  $('#retention-msg').textContent = r.error ? r.error : (n>0 ? `Đã lưu: giữ ${n} ngày.` : 'Đã lưu: giữ vĩnh viễn.');
+  $('#retention-msg').style.color = r.error ? 'var(--danger)' : 'var(--ok)';
+};
+$('#btn-cleanup-now').onclick = async ()=>{
+  if(!confirm('Dọn file quá hạn ngay bây giờ?')) return;
+  $('#retention-msg').textContent = 'Đang dọn...'; $('#retention-msg').style.color='var(--muted)';
+  const r = await api('/api/cleanup',{method:'POST'});
+  $('#retention-msg').textContent = r.msg||'Xong.'; $('#retention-msg').style.color='var(--ok)';
+  loadSettings();
 };
 
 // ---------------- user management (admin)

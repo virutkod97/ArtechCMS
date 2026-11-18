@@ -238,6 +238,18 @@ class DB:
             return self.c.execute("SELECT COUNT(*) FROM recordings WHERE device_id=?", (did,)).fetchone()[0]
         return self.c.execute("SELECT COUNT(*) FROM recordings").fetchone()[0]
 
+    def expired_recordings(self, cutoff_ts):
+        """Recordings whose effective time (call time, or download time if unknown)
+        is older than cutoff_ts."""
+        q = ("SELECT * FROM recordings WHERE "
+             "(CASE WHEN call_ts>0 THEN call_ts ELSE created END) < ?")
+        return [dict(r) for r in self.c.execute(q, (int(cutoff_ts),)).fetchall()]
+
+    def delete_recording(self, rid):
+        with _LOCK:
+            self.c.execute("DELETE FROM recordings WHERE id=?", (rid,))
+            self.c.commit()
+
     # ---------------------------------------------------------------- users
     def count_users(self):
         return self.c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
