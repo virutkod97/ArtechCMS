@@ -113,10 +113,11 @@ async function delDevice(id){
   if(!confirm('Xóa thiết bị này? (file đã tải vẫn giữ)')) return;
   await api(`/api/devices/${id}`,{method:'DELETE'}); loadDevices();
 }
-const FIELDS=['id','name','host','port','user','interval_min','lookback_days'];
+const FIELDS=['name','host','port','user','interval_min','lookback_days'];
 function openModal(d){
   d = d||{};
   $('#modal-title').textContent = d.id?'Sửa thiết bị':'Thêm thiết bị';
+  $('#f-id').value = d.id || '';          // explicit: add = empty, edit = id (never leaks previous edit)
   FIELDS.forEach(k=>{ const e=$('#f-'+k); if(e) e.value = d[k]!==undefined && d[k]!==null ? d[k] : (e.defaultValue||''); });
   $('#f-password').value=''; $('#f-password').placeholder = d.id?'để trống = giữ nguyên':'nhập mật khẩu';
   $('#f-enabled').checked = d.enabled===undefined?true:!!d.enabled;
