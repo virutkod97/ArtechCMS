@@ -140,14 +140,16 @@ $('#btn-save').onclick = async ()=>{
   $('#modal').classList.add('hidden'); loadDevices();
 };
 $('#btn-test').onclick = async ()=>{
+  const d=formData();                       // test the values in the form, even before saving
+  if(!d.host){ $('#test-result').textContent='Nhập IP thiết bị trước.'; $('#f-host').focus(); return; }
+  const id=$('#f-id').value; if(id) d.id=+id;   // editing: blank password = dùng mật khẩu đã lưu
+  const btn=$('#btn-test'); btn.disabled=true;
   $('#test-result').textContent='Đang kiểm tra...';
-  const d=formData();
-  // save-less test: create temp via PUT needs id; use a transient endpoint by posting then deleting is heavy.
-  // simplest: require save first if new. Here we test an existing device if editing.
-  const id=$('#f-id').value;
-  if(!id){ $('#test-result').textContent='Lưu thiết bị trước rồi kiểm tra.'; return; }
-  const r = await api(`/api/devices/${id}/test`,{method:'POST'});
-  $('#test-result').textContent = (r.ok?'Kết nối được. ':'Không kết nối được: ')+(r.msg||'');
+  try{
+    const r = await api('/api/devices/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+    $('#test-result').textContent = (r.ok?'✓ Kết nối được. ':'✗ Không kết nối được: ')+(r.msg||'');
+    $('#test-result').style.color = r.ok ? 'var(--ok)' : 'var(--danger)';
+  } finally { btn.disabled=false; }
 };
 
 // ---------------- recordings (call log) — nothing loads until user presses "Xem"

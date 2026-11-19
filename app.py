@@ -427,6 +427,42 @@ def api_stop(did):
     log("yeu cau dung lenh dang chay cua thiet bi #%d" % did)
     return jsonify({"ok": True, "msg": "Đã gửi yêu cầu dừng. Lệnh sẽ dừng trong vài giây."})
 
+@app.route("/api/devices/test", methods=["POST"])
+def api_test_unsaved():
+    """Test a 6066 login from the form values, BEFORE the device is saved.
+    Body: {host, port, user, password, id?}. On an existing device (id) a blank
+    password means 'use the saved one', and its held session is dropped first so
+    the probe doesn't collide with our own login slot."""
+    require_manage()
+    b = request.get_json(force=True) or {}
+    host = (b.get("host") or "").strip()
+    if not host:
+        return jsonify({"ok": False, "msg": "Thiếu IP thiết bị."}), 400
+    did = b.get("id")
+    try: did = int(did) if did else None
+    except Exception: did = None
+    pw = b.get("password") or ""
+    if did:
+        require_device(did)
+        if not pw:
+            saved = db.get_device(did)
+            if saved: pw = saved.get("password") or ""
+    dev = {"host": host, "port": int(b.get("port") or 6066),
+           "user": (b.get("user") or "admin").strip(), "password": pw}
+    if did:
+        lk = _dev_lock(did)
+        if not lk.acquire(blocking=False):
+            return jsonify({"ok": False, "busy": True,
+                            "msg": "Thiết bị đang bận (có lệnh khác đang chạy). Thử lại sau."}), 409
+        try:
+            sessions.drop(did)          # free our own held slot before probing
+            res = protocol.login_probe(dev, log=log)
+        finally:
+            lk.release()
+    else:
+        res = protocol.login_probe(dev, log=log)
+    return jsonify(res)
+
 @app.route("/api/devices/<int:did>/test", methods=["POST"])
 def api_test_device(did):
     require_device(did)
