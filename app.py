@@ -10,6 +10,7 @@ from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from artech.db import DB
 from artech import protocol, downloader
+from artech.session import SessionManager
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE, "data")
@@ -123,6 +124,14 @@ def _stop_flag(did):
         return ev
 
 
+# ------------------------------------------------------------------ persistent login sessions
+# Once logged in to a device, keep the connection open with a periodic keepalive so
+# the device's single login slot stays held and other clients (PhoneRec, ...) get
+# "busy" instead of stealing the session. `_dev_lock` still rejects *our own*
+# overlapping operations; `sess.lock` serialises socket use against the keepalive.
+sessions = SessionManager(lambda did: db.get_device(did), log=log)
+
+
 # ------------------------------------------------------------------ retention cleanup
 def cleanup_recordings():
     """Delete recordings older than the configured retention (in days). 0 = keep forever.
@@ -179,7 +188,10 @@ def scheduler_loop():
                 try:
                     log("auto-run device #%d %s" % (d["id"], d["name"]))
                     ev = _stop_flag(d["id"]); ev.clear()
-                    downloader.run_device(db, d, REC_ROOT, log=log, should_stop=ev.is_set)
+                    sess = sessions.get(d["id"])
+                    with sess.lock:
+                        downloader.run_device(db, d, REC_ROOT, log=log,
+                                              should_stop=ev.is_set, sess=sess)
                 finally:
                     lk.release()
         except Exception as e:
@@ -357,11 +369,13 @@ def api_add_device():
 def api_update_device(did):
     require_manage(); require_device(did)
     db.update_device(did, request.get_json(force=True))
+    sessions.drop(did)   # host/credentials may have changed: drop held login, reconnect next cycle
     return jsonify({"ok": True})
 
 @app.route("/api/devices/<int:did>", methods=["DELETE"])
 def api_delete_device(did):
     require_manage(); require_device(did)
+    sessions.drop(did)   # close + forget the held login before removing the device
     db.delete_device(did)
     return jsonify({"ok": True})
 
@@ -391,7 +405,10 @@ def api_download_now(did):
     ev = _stop_flag(did); ev.clear()
     def job():
         try:
-            downloader.run_device(db, d, REC_ROOT, log=log, dates=dates, should_stop=ev.is_set)
+            sess = sessions.get(did)
+            with sess.lock:
+                downloader.run_device(db, d, REC_ROOT, log=log, dates=dates,
+                                      should_stop=ev.is_set, sess=sess)
         except Exception as e:
             log("loi job tai #%d: %s" % (did, e))
         finally:
@@ -425,12 +442,21 @@ def api_test_device(did):
         ok, msg = ftp_downloader.probe(d["host"], d.get("ftp_port", 21), user, pw)
         log("[test ftp %s] %s" % (d["host"], msg))
         return jsonify({"ok": ok, "msg": msg})
-    # standalone db6066: a successful 6066 login is all that's needed
+    # standalone db6066: a successful 6066 login is all that's needed.
+    # Reuse the persistent session so testing doesn't fight our own held login slot:
+    # reset -> re-login verifies the credentials AND leaves the session held.
     lk = _dev_lock(did)
     if not lk.acquire(blocking=False):
         return jsonify({"ok": False, "busy": True, "msg": "Thiết bị đang bận (có lệnh khác đang chạy). Thử lại sau."}), 409
     try:
-        res = protocol.login_probe(d, log=log)
+        sess = sessions.get(did)
+        with sess.lock:
+            sess.reset()
+            try:
+                sess.get()
+                res = {"ok": True, "msg": "Đăng nhập thành công. Đã giữ phiên để tránh client khác chiếm."}
+            except Exception as e:
+                res = {"ok": False, "msg": "Đăng nhập thất bại: %s" % e}
     finally:
         lk.release()
     return jsonify(res)
@@ -459,7 +485,9 @@ def api_calllog(did):
     if not lk.acquire(blocking=False):
         return jsonify({"error": "Thiết bị đang bận (có lệnh khác đang chạy). Thử lại sau.", "busy": True}), 409
     try:
-        rows, err = db_downloader.fetch_calllog(d, date_from, date_to, log=log)
+        sess = sessions.get(did)
+        with sess.lock:
+            rows, err = db_downloader.fetch_calllog(d, date_from, date_to, log=log, sess=sess)
     finally:
         lk.release()
     if err:
@@ -499,7 +527,9 @@ def api_fetch_one(did):
     if not lk.acquire(blocking=False):
         return jsonify({"ok": False, "busy": True, "error": "Thiết bị đang bận. Thử lại sau."}), 409
     try:
-        rid, err = db_downloader.fetch_one(db, d, cdr, REC_ROOT, log=log)
+        sess = sessions.get(did)
+        with sess.lock:
+            rid, err = db_downloader.fetch_one(db, d, cdr, REC_ROOT, log=log, sess=sess)
     finally:
         lk.release()
     if err:

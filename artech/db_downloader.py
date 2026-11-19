@@ -90,18 +90,58 @@ def _duration(wav):
     return protocol.wav_duration(wav)
 
 
-def fetch_calllog(device, date_from, date_to, log=lambda *a: None):
+def download_file_resilient(sess, row, log=lambda *a: None, should_stop=None, progress=None, tries=3):
+    """Download one recording, surviving a hung/stolen session.
+
+    Policy (per user's spec): try up to `tries` times on the current session to
+    get data; if that still yields nothing, reconnect ONCE and try again; only
+    then report an error.  Returns (wav_bytes_or_None, error_or_None).
+    """
+    last_err = None
+    for attempt in range(1, tries + 1):
+        try:
+            wav = protocol.download_file(sess.get(), row, log=log,
+                                         should_stop=should_stop, progress=progress)
+            if wav:
+                return wav, None
+            last_err = "khong co du lieu"
+        except protocol.Cancelled:
+            raise
+        except Exception as e:
+            last_err = str(e)
+        log("  thu lai %d/%d (%s)" % (attempt, tries, last_err))
+    # all tries failed -> reconnect once and try a final time
+    log("  ket noi lai phien...")
+    sess.reset()
+    try:
+        wav = protocol.download_file(sess.get(), row, log=log,
+                                     should_stop=should_stop, progress=progress)
+        if wav:
+            return wav, None
+        return None, last_err or "khong co du lieu"
+    except protocol.Cancelled:
+        raise
+    except Exception as e:
+        return None, str(e)
+
+
+def fetch_calllog(device, date_from, date_to, log=lambda *a: None, sess=None):
     """
     Live call log: pull the device's CDR DBs for [date_from, date_to] via 6066 and
     return the raw CDR rows (NO audio download). date_* are datetime.date.
     Returns (rows, error_or_None).
+
+    If `sess` (a persistent DeviceSession) is given it is reused and left open;
+    otherwise a short-lived connection is opened and closed here.
     """
     tag = "[calllog %s]" % device["host"]
     days = (date_to - date_from).days
     if days < 0:
         return [], "khoang ngay khong hop le"
     dates = [date_to - datetime.timedelta(days=i) for i in range(days + 1)]
-    sess = _Session(device, lambda *a: log(tag, *a))
+    owns = sess is None
+    if owns:
+        sess = _Session(device, lambda *a: log(tag, *a))
     try:
         sess.get()
     except Exception as e:
@@ -111,18 +151,24 @@ def fetch_calllog(device, date_from, date_to, log=lambda *a: None):
     except Exception as e:
         rows = []; log("%s keo DB loi: %s" % (tag, e))
     finally:
-        sess.close()
+        if owns:
+            sess.close()
     log("%s lay %d ban ghi (%s..%s)" % (tag, len(rows), date_from, date_to))
     return rows, None
 
 
-def fetch_one(db, device, cdr_row, rec_root, log=lambda *a: None):
+def fetch_one(db, device, cdr_row, rec_root, log=lambda *a: None, sess=None):
     """
     Download ONE recording (given its CDR row dict) via 6066 and store it.
-    Returns (rec_id, error_or_None). Uses its own short-lived connection.
+    Returns (rec_id, error_or_None).
+
+    If `sess` (a persistent DeviceSession) is given it is reused and left open
+    (with the 3-tries-then-reconnect policy); otherwise a short-lived connection
+    is opened and closed here.
     """
     did = device["id"]
     tag = "[fetch %s]" % device["host"]
+    tlog = lambda *a: log(tag, *a)
     path = cdr_row.get("RecFilePath") or ""
     if not path.lower().endswith(".wav"):
         return None, "khong phai file wav"
@@ -131,19 +177,18 @@ def fetch_one(db, device, cdr_row, rec_root, log=lambda *a: None):
                             (did, path)).fetchone()
     if existing:
         return existing[0], None
+    owns = sess is None
+    if owns:
+        sess = _Session(device, tlog)
     try:
-        conn = protocol.login_and_handshake(device, log=lambda *a: log(tag, *a))
-    except Exception as e:
-        return None, "login loi: %s" % e
-    try:
-        wav = protocol.download_file(conn, cdr_row, log=lambda *a: log(tag, *a))
+        wav, err = download_file_resilient(sess, cdr_row, log=tlog)
     except Exception as e:
         return None, "tai loi: %s" % e
     finally:
-        try: conn.s.close()
-        except Exception: pass
+        if owns:
+            sess.close()
     if not wav:
-        return None, "khong tai duoc file (0 bytes)"
+        return None, "khong tai duoc file (%s)" % (err or "0 bytes")
     dev_dir = os.path.join(rec_root, "dev%d" % did)
     os.makedirs(dev_dir, exist_ok=True)
     name = path.replace("/", "\\").rsplit("\\", 1)[-1]
@@ -159,14 +204,18 @@ def fetch_one(db, device, cdr_row, rec_root, log=lambda *a: None):
     return rid, None
 
 
-def run_device_db(db, device, rec_root, log=lambda *a: None, dates=None, should_stop=None):
+def run_device_db(db, device, rec_root, log=lambda *a: None, dates=None, should_stop=None, sess=None):
     """Pull the device's CDR DBs and download new recordings over 6066.
     `dates` (list of datetime.date) overrides the default lookback window.
 
     Never blocks forever: each transfer is abandoned after protocol.STALL seconds
-    without progress, a failed file is retried once on a fresh connection and then
-    skipped, and the job stops after MAX_FAILS_IN_ROW consecutive failures or when
-    should_stop() turns true."""
+    without progress; a failed file is retried 3 times then the session is
+    reconnected once (download_file_resilient); the job stops after
+    MAX_FAILS_IN_ROW consecutive failures or when should_stop() turns true.
+
+    If `sess` (a persistent DeviceSession) is given it is reused and left open so
+    the login slot stays held between cycles; otherwise a short-lived connection
+    is opened and closed here."""
     did = device["id"]
     folder = device.get("db_folder") or ""
     lookback = int(device.get("lookback_days", 1) or 1)
@@ -174,7 +223,9 @@ def run_device_db(db, device, rec_root, log=lambda *a: None, dates=None, should_
     tlog = lambda *a: log(tag, *a)
     use_local = bool(folder and os.path.isdir(folder))
     stop = should_stop or (lambda: False)
-    sess = _Session(device, tlog)
+    owns = sess is None
+    if owns:
+        sess = _Session(device, tlog)
 
     try:
         sess.get()
@@ -223,21 +274,11 @@ def run_device_db(db, device, rec_root, log=lambda *a: None, dates=None, should_
                 if got - _mark[0] >= 2 * 1024 * 1024:           # log every 2 MB on big files
                     _mark[0] = got
                     tlog("  %s: %.1f/%.1f MB" % (_name, got / 1048576.0, (size or 0) / 1048576.0))
-            wav = None
-            for attempt in (1, 2):
-                try:
-                    wav = protocol.download_file(sess.get(), row, log=tlog, should_stop=stop, progress=progress)
-                    if wav:
-                        break
-                    sess.reset()                                 # unexpected content: start clean
-                except protocol.Cancelled:
-                    raise
-                except Exception as e:
-                    tlog("loi tai %s (lan %d): %s" % (name, attempt, e))
-                    sess.reset()
+            wav, err = download_file_resilient(sess, row, log=tlog,
+                                               should_stop=stop, progress=progress)
             if not wav:
                 failed += 1; fails_in_row += 1
-                tlog("bo qua %s (%d/%d)" % (name, n, len(todo)))
+                tlog("bo qua %s (%d/%d): %s" % (name, n, len(todo), err or "khong co du lieu"))
                 if fails_in_row >= MAX_FAILS_IN_ROW:
                     tlog("dung: %d file loi lien tiep, thiet bi co the dang gap su co" % fails_in_row)
                     break
@@ -258,7 +299,8 @@ def run_device_db(db, device, rec_root, log=lambda *a: None, dates=None, should_
         tlog("loi: %s" % e)
         failed += 1
     finally:
-        sess.close()
+        if owns:
+            sess.close()
     msg = "Tải %d file mới" % new
     if failed:
         msg += ", %d file lỗi" % failed
