@@ -69,8 +69,10 @@ async function loadDevices(){
     filt.innerHTML += `<option value="${d.id}">${esc(d.name)}</option>`;
     const st = d.busy ? '<span class="st busy">Đang chạy</span>'
              : d.enabled ? '<span class="st on">Tự động tải</span>' : '<span class="st off">Tạm dừng</span>';
+    const odot = d.online===true ? 'up' : d.online===false ? 'down' : 'unknown';
+    const otitle = d.online===true ? 'Online' : d.online===false ? ('Mất kết nối — sẽ kiểm tra lại chu kỳ sau'+(d.online_msg?': '+d.online_msg:'')) : 'Chưa kiểm tra';
     el.innerHTML += `<tr>
-      <td><b>${esc(d.name)}</b><div class="sub num">${esc(d.host)}:${d.port}</div></td>
+      <td><span class="dot ${odot}" title="${esc(otitle)}"></span><b>${esc(d.name)}</b><div class="sub num">${esc(d.host)}:${d.port}</div></td>
       <td>${st}</td>
       <td class="num">${d.interval_min} phút</td>
       <td class="num">${d.recordings} file</td>

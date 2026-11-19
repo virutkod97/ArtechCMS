@@ -124,6 +124,16 @@ def _stop_flag(did):
         return ev
 
 
+# ------------------------------------------------------------------ online status
+# Per-device reachability, refreshed by the scheduler health-check every ~20s and
+# by every real operation.  up=True (green) / False (red) / None (unknown, e.g. paused).
+_online = {}
+def _set_online(did, up, msg=""):
+    _online[did] = {"up": up, "ts": int(time.time()), "msg": msg}
+def _get_online(did):
+    return _online.get(did, {"up": None, "ts": 0, "msg": ""})
+
+
 # ------------------------------------------------------------------ persistent login sessions
 # Once logged in to a device, keep the connection open with a periodic keepalive so
 # the device's single login slot stays held and other clients (PhoneRec, ...) get
@@ -162,11 +172,45 @@ def cleanup_recordings():
 # ------------------------------------------------------------------ scheduler
 _sched_stop = threading.Event()
 
+def _health_check():
+    """Cheap per-device liveness pass. Keeps the held session alive / re-establishes
+    it, and records green/red status. A device that can't connect is marked red and
+    retried on the next pass."""
+    for d in db.list_devices():
+        did = d["id"]
+        if not d["enabled"]:
+            _set_online(did, None, "Tạm dừng")        # paused: not checked
+            continue
+        if device_busy(did):
+            _set_online(did, True, "Đang hoạt động")   # an op is running => reachable
+            continue
+        sess = sessions.get(did)
+        if not sess.lock.acquire(timeout=1):
+            _set_online(did, True, "Đang bận")
+            continue
+        try:
+            if sess.is_open():
+                _set_online(did, True, "Online")        # keepalive is holding the session
+            else:
+                try:
+                    sess.get()                          # (re)connect + login
+                    _set_online(did, True, "Online")
+                except Exception as e:
+                    sess.reset()
+                    _set_online(did, False, str(e))
+        finally:
+            sess.lock.release()
+
+
 def scheduler_loop():
     log("scheduler started")
     while not _sched_stop.is_set():
         try:
             now = int(time.time())
+            try:
+                _health_check()
+            except Exception as e:
+                log("health-check error: %s" % e)
             # daily retention cleanup
             if now - int(db.get_setting("last_cleanup", 0) or 0) >= 86400:
                 db.set_setting("last_cleanup", now)      # mark before running (avoid tight retry on error)
@@ -192,6 +236,8 @@ def scheduler_loop():
                     with sess.lock:
                         downloader.run_device(db, d, REC_ROOT, log=log,
                                               should_stop=ev.is_set, sess=sess)
+                    _set_online(d["id"], sess.is_open(),
+                                "Online" if sess.is_open() else "Không đăng nhập được")
                 finally:
                     lk.release()
         except Exception as e:
@@ -350,6 +396,8 @@ def api_devices():
         d.pop("ftp_pass", None)
         d["recordings"] = db.count_recordings(d["id"])
         d["busy"] = device_busy(d["id"])
+        o = _get_online(d["id"])
+        d["online"] = o["up"]; d["online_msg"] = o["msg"]
         out.append(d)
     return jsonify(out)
 
@@ -409,6 +457,8 @@ def api_download_now(did):
             with sess.lock:
                 downloader.run_device(db, d, REC_ROOT, log=log, dates=dates,
                                       should_stop=ev.is_set, sess=sess)
+            _set_online(did, sess.is_open(),
+                        "Online" if sess.is_open() else "Không đăng nhập được")
         except Exception as e:
             log("loi job tai #%d: %s" % (did, e))
         finally:
@@ -459,6 +509,7 @@ def api_test_unsaved():
             res = protocol.login_probe(dev, log=log)
         finally:
             lk.release()
+        _set_online(did, bool(res.get("ok")), res.get("msg", ""))
     else:
         res = protocol.login_probe(dev, log=log)
     return jsonify(res)
@@ -495,6 +546,7 @@ def api_test_device(did):
                 res = {"ok": False, "msg": "Đăng nhập thất bại: %s" % e}
     finally:
         lk.release()
+    _set_online(did, bool(res.get("ok")), res.get("msg", ""))
     return jsonify(res)
 
 
@@ -524,6 +576,7 @@ def api_calllog(did):
         sess = sessions.get(did)
         with sess.lock:
             rows, err = db_downloader.fetch_calllog(d, date_from, date_to, log=log, sess=sess)
+        _set_online(did, sess.is_open(), "Online" if sess.is_open() else (err or ""))
     finally:
         lk.release()
     if err:
@@ -566,6 +619,7 @@ def api_fetch_one(did):
         sess = sessions.get(did)
         with sess.lock:
             rid, err = db_downloader.fetch_one(db, d, cdr, REC_ROOT, log=log, sess=sess)
+        _set_online(did, sess.is_open(), "Online" if sess.is_open() else (err or ""))
     finally:
         lk.release()
     if err:
